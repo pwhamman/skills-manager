@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { Check, ChevronDown, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -17,6 +17,7 @@ export function Profiles() {
   const [newName, setNewName] = useState("");
   const [homeFolders, setHomeFolders] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
 
   const selected = profiles.find((profile) => profile.id === selectedId) ?? profiles[0] ?? null;
@@ -185,15 +186,37 @@ export function Profiles() {
                   {t("profiles.canonical")}
                 </button>
                 <p className="text-[12px] leading-5 text-muted">{t("profiles.folderHint")}</p>
-                <select
-                  value=""
-                  onChange={(event) => { if (event.target.value) void addFolder(event.target.value); }}
-                  className="app-input w-full"
-                  aria-label={t("profiles.addFolder")}
-                >
-                  <option value="">{t("profiles.addFolder")}</option>
-                  {homeFolders.filter((folder) => !selected.folders.includes(folder)).map((folder) => <option key={folder} value={folder}>{folder}</option>)}
-                </select>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setFolderMenuOpen((open) => !open)}
+                    disabled={homeFolders.every((folder) => selected.folders.includes(folder))}
+                    className="app-button-secondary h-10 w-full justify-between bg-background px-3 disabled:cursor-not-allowed"
+                    aria-expanded={folderMenuOpen}
+                    aria-haspopup="listbox"
+                  >
+                    {t("profiles.addFolder")}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                  {folderMenuOpen && (
+                    <div role="listbox" className="absolute top-full z-30 mt-1.5 max-h-52 w-full overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-lg">
+                      {homeFolders.filter((folder) => !selected.folders.includes(folder)).map((folder) => (
+                        <button
+                          key={folder}
+                          type="button"
+                          role="option"
+                          onClick={() => {
+                            setFolderMenuOpen(false);
+                            void addFolder(folder);
+                          }}
+                          className="flex w-full items-center rounded-md px-2.5 py-2 text-left text-[13px] text-secondary transition-colors hover:bg-surface-hover"
+                        >
+                          ~/{folder}/AGENTS.md
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {selected.folders.map((folder) => (
                   <div key={folder} className={`flex items-center gap-1 rounded-lg ${selectedFolder === folder ? "bg-surface-active" : "hover:bg-surface-hover"}`}>
                     <button
