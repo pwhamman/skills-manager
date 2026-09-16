@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use rusqlite::Connection;
 
 /// Current schema version. Bump this when adding a new migration.
-const LATEST_VERSION: u32 = 9;
+const LATEST_VERSION: u32 = 10;
 
 /// Run all pending migrations on the database.
 ///
@@ -56,6 +56,7 @@ fn migrate_step(conn: &Connection, from_version: u32) -> Result<()> {
         6 => migrate_v6_to_v7(conn),
         7 => migrate_v7_to_v8(conn),
         8 => migrate_v8_to_v9(conn),
+        9 => migrate_v9_to_v10(conn),
         _ => bail!("unknown migration version: {from_version}"),
     }
 }
@@ -351,6 +352,66 @@ fn migrate_v8_to_v9(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// v9 → v10: source-backed plugin packages. Portable package state lives in
+/// `plugins`, membership, and dependency tables; setup and deployment ownership
+/// are deliberately device-local.
+fn migrate_v9_to_v10(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS plugins (
+            id TEXT PRIMARY KEY,
+            slug TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            kind TEXT NOT NULL CHECK(kind IN ('cursor', 'manual')),
+            name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            version TEXT,
+            source_ref TEXT,
+            source_ref_resolved TEXT,
+            source_branch TEXT,
+            source_revision TEXT,
+            author TEXT,
+            homepage TEXT,
+            active INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_skills (
+            plugin_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+            skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+            sort_order INTEGER NOT NULL,
+            PRIMARY KEY(plugin_id, skill_id)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_dependencies (
+            plugin_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+            dependency_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE RESTRICT,
+            PRIMARY KEY(plugin_id, dependency_id)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_machine_settings (
+            plugin_id TEXT PRIMARY KEY REFERENCES plugins(id) ON DELETE CASCADE,
+            setup_state TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS plugin_local_documents (
+            plugin_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+            document_key TEXT NOT NULL,
+            content TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY(plugin_id, document_key)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_managed_targets (
+            plugin_id TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+            skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+            tool TEXT NOT NULL,
+            PRIMARY KEY(plugin_id, skill_id, tool)
+        );
+        CREATE INDEX IF NOT EXISTS idx_plugin_skills_skill ON plugin_skills(skill_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_dependencies_dependency ON plugin_dependencies(dependency_id);
+        ",
+    )?;
+    Ok(())
+}
+
 // ── Helpers ──
 
 fn add_column_if_missing(
@@ -423,6 +484,12 @@ mod tests {
         assert!(tables.contains(&"profile_folders".to_string()));
         assert!(tables.contains(&"active_profile".to_string()));
         assert!(tables.contains(&"profile_deployments".to_string()));
+        assert!(tables.contains(&"plugins".to_string()));
+        assert!(tables.contains(&"plugin_skills".to_string()));
+        assert!(tables.contains(&"plugin_dependencies".to_string()));
+        assert!(tables.contains(&"plugin_machine_settings".to_string()));
+        assert!(tables.contains(&"plugin_local_documents".to_string()));
+        assert!(tables.contains(&"plugin_managed_targets".to_string()));
     }
 
     #[test]

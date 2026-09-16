@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
-use super::{central_repo, profiles};
+use super::{central_repo, plugins, profiles};
 use super::repo_lock::RepoLock;
 use super::skill_metadata;
-use super::skill_store::{ProfileRecord, ScenarioRecord, SkillRecord, SkillStore};
+use super::skill_store::{PluginRecord, ProfileRecord, ScenarioRecord, SkillRecord, SkillStore};
 
 const SCHEMA_VERSION: u32 = 1;
 const APP_MIN_VERSION: &str = "2.0.0";
@@ -62,6 +62,34 @@ pub struct ScenarioSkillMetaFile {
     pub tools: BTreeMap<String, bool>,
 }
 
+/// Portable plugin package metadata. Machine-local setup settings, documents,
+/// and managed-target ownership are intentionally not represented here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginMetaFile {
+    pub schema_version: u32,
+    pub plugin_id: String,
+    pub slug: String,
+    pub kind: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    pub source: PluginSourceMeta,
+    pub author: Option<String>,
+    pub homepage: Option<String>,
+    pub skill_ids: Vec<String>,
+    pub dependency_ids: Vec<String>,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginSourceMeta {
+    #[serde(rename = "ref")]
+    pub ref_: Option<String>,
+    pub resolved_ref: Option<String>,
+    pub branch: Option<String>,
+    pub revision: Option<String>,
+}
+
 pub fn metadata_dir() -> PathBuf {
     central_repo::skills_dir().join(".skills-manager")
 }
@@ -71,6 +99,7 @@ pub fn metadata_exists() -> bool {
         || metadata_dir().join("skills").is_dir()
         || metadata_dir().join("scenarios").is_dir()
         || metadata_dir().join("profiles").is_dir()
+        || metadata_dir().join("plugins").is_dir()
 }
 
 pub fn has_complete_skill_snapshot() -> bool {
@@ -102,6 +131,7 @@ pub(crate) fn write_all_from_db_unlocked(store: &SkillStore) -> Result<()> {
     write_skill_records_from_db(store)?;
     write_scenario_records_from_db(store)?;
     write_profile_records_from_db(store)?;
+    write_plugin_records_from_db(store)?;
     remove_stale_metadata_files(store)?;
     Ok(())
 }
@@ -132,6 +162,12 @@ pub(crate) fn reindex_from_metadata_unlocked(store: &SkillStore) -> Result<()> {
         );
     }
     ensure_unique_path_keys(&skills)?;
+    let has_complete_plugin_snapshot = metadata_dir().join("plugins").is_dir();
+    let plugin_metadata = if has_complete_plugin_snapshot {
+        read_plugin_files()?
+    } else {
+        Vec::new()
+    };
 
     let has_complete_scenario_snapshot = metadata_has_complete_scenario_snapshot();
     let scenarios = if has_complete_scenario_snapshot {
@@ -252,6 +288,94 @@ pub(crate) fn reindex_from_metadata_unlocked(store: &SkillStore) -> Result<()> {
         store.set_tags_for_skill(&meta.skill_id, &meta.tags)?;
     }
 
+    if has_complete_plugin_snapshot {
+    // Plugins are indexed after skills so package membership cannot become a
+    // partial group when a referenced skill was deleted or failed to import.
+    let known_skill_ids: HashSet<String> = store
+        .get_all_skills()?
+        .into_iter()
+        .map(|skill| skill.id)
+        .collect();
+    let existing_plugins: HashMap<String, PluginRecord> = store
+        .get_all_plugins()?
+        .into_iter()
+        .map(|plugin| (plugin.id.clone(), plugin))
+        .collect();
+    let mut graph = BTreeMap::new();
+    let mut seen_plugin_ids = HashSet::new();
+    let mut seen_slugs = HashSet::new();
+    for metadata in &plugin_metadata {
+        if metadata.plugin_id.trim().is_empty()
+            || metadata.slug.trim().is_empty()
+            || !metadata
+                .slug
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            bail!("invalid plugin metadata identity");
+        }
+        if !seen_plugin_ids.insert(metadata.plugin_id.clone()) {
+            bail!("duplicate plugin metadata id: {}", metadata.plugin_id);
+        }
+        if !seen_slugs.insert(metadata.slug.to_ascii_lowercase()) {
+            bail!("duplicate plugin metadata slug: {}", metadata.slug);
+        }
+        if !matches!(metadata.kind.as_str(), "cursor" | "manual") {
+            bail!("invalid plugin kind for {}", metadata.plugin_id);
+        }
+        if metadata.skill_ids.is_empty() {
+            bail!("plugin {} has no member skills", metadata.plugin_id);
+        }
+        let mut members = HashSet::new();
+        for skill_id in &metadata.skill_ids {
+            if !members.insert(skill_id) {
+                bail!("plugin {} has duplicate skill {}", metadata.plugin_id, skill_id);
+            }
+            if !known_skill_ids.contains(skill_id) {
+                bail!("plugin {} references unknown skill {}", metadata.plugin_id, skill_id);
+            }
+        }
+        graph.insert(metadata.plugin_id.clone(), metadata.dependency_ids.clone());
+    }
+    let plugin_ids: Vec<String> = graph.keys().cloned().collect();
+    plugins::dependency_first_closure(&plugin_ids, &graph)?;
+    let plugin_records: Vec<PluginRecord> = plugin_metadata
+        .iter()
+        .map(|metadata| {
+            let previous = existing_plugins.get(&metadata.plugin_id);
+            PluginRecord {
+                id: metadata.plugin_id.clone(),
+                slug: metadata.slug.clone(),
+                kind: metadata.kind.clone(),
+                name: previous
+                    .map(|plugin| plugin.name.clone())
+                    .unwrap_or_else(|| metadata.slug.clone()),
+                display_name: metadata.display_name.clone(),
+                description: metadata.description.clone(),
+                version: metadata.version.clone(),
+                source_ref: metadata.source.ref_.clone(),
+                source_ref_resolved: metadata.source.resolved_ref.clone(),
+                source_branch: metadata.source.branch.clone(),
+                source_revision: metadata.source.revision.clone(),
+                author: metadata.author.clone(),
+                homepage: metadata.homepage.clone(),
+                active: metadata.active,
+                created_at: previous.map(|plugin| plugin.created_at).unwrap_or(now),
+                updated_at: previous.map(|plugin| plugin.updated_at).unwrap_or(now),
+            }
+        })
+        .collect();
+    let plugin_members = plugin_metadata
+        .iter()
+        .map(|metadata| (metadata.plugin_id.clone(), metadata.skill_ids.clone()))
+        .collect::<HashMap<_, _>>();
+    let plugin_dependencies = plugin_metadata
+        .iter()
+        .map(|metadata| (metadata.plugin_id.clone(), metadata.dependency_ids.clone()))
+        .collect::<HashMap<_, _>>();
+    store.replace_plugins_from_metadata(&plugin_records, &plugin_members, &plugin_dependencies)?;
+    }
+
     if has_complete_scenario_snapshot {
         store.replace_scenarios_from_metadata(&scenarios)?;
         store.replace_scenario_memberships_from_metadata(&memberships)?;
@@ -308,6 +432,7 @@ fn ensure_metadata_dirs() -> Result<()> {
     fs::create_dir_all(metadata_dir().join("scenarios"))?;
     fs::create_dir_all(metadata_dir().join("scenario-skills"))?;
     fs::create_dir_all(metadata_dir().join("profiles"))?;
+    fs::create_dir_all(metadata_dir().join("plugins"))?;
     Ok(())
 }
 
@@ -355,6 +480,36 @@ fn write_profile_records_from_db(store: &SkillStore) -> Result<()> {
     Ok(())
 }
 
+fn write_plugin_records_from_db(store: &SkillStore) -> Result<()> {
+    for plugin in store.get_all_plugins()? {
+        let meta = PluginMetaFile {
+            schema_version: SCHEMA_VERSION,
+            plugin_id: plugin.id.clone(),
+            slug: plugin.slug.clone(),
+            kind: plugin.kind.clone(),
+            display_name: plugin.display_name.clone(),
+            description: plugin.description.clone(),
+            version: plugin.version.clone(),
+            source: PluginSourceMeta {
+                ref_: plugin.source_ref.clone(),
+                resolved_ref: plugin.source_ref_resolved.clone(),
+                branch: plugin.source_branch.clone(),
+                revision: plugin.source_revision.clone(),
+            },
+            author: plugin.author.clone(),
+            homepage: plugin.homepage.clone(),
+            skill_ids: store.get_plugin_skill_ids(&plugin.id)?,
+            dependency_ids: store.get_plugin_dependency_ids(&plugin.id)?,
+            active: plugin.active,
+        };
+        atomic_write_json(
+            &metadata_dir().join("plugins").join(format!("{}.json", plugin.id)),
+            &meta,
+        )?;
+    }
+    Ok(())
+}
+
 fn remove_stale_metadata_files(store: &SkillStore) -> Result<()> {
     let skill_ids: HashSet<String> = store
         .get_all_skills()?
@@ -376,6 +531,13 @@ fn remove_stale_metadata_files(store: &SkillStore) -> Result<()> {
         .map(|profile| profile.id)
         .collect();
     remove_stale_json_files(&metadata_dir().join("profiles"), &profile_ids)?;
+
+    let plugin_ids: HashSet<String> = store
+        .get_all_plugins()?
+        .into_iter()
+        .map(|plugin| plugin.id)
+        .collect();
+    remove_stale_json_files(&metadata_dir().join("plugins"), &plugin_ids)?;
 
     let membership_root = metadata_dir().join("scenario-skills");
     if membership_root.exists() {
@@ -506,6 +668,10 @@ fn write_membership_file(member: &ScenarioSkillMetaFile) -> Result<()> {
 
 fn read_skill_files() -> Result<Vec<SkillMetaFile>> {
     read_json_files(metadata_dir().join("skills"))
+}
+
+fn read_plugin_files() -> Result<Vec<PluginMetaFile>> {
+    read_json_files(metadata_dir().join("plugins"))
 }
 
 fn central_repo_has_valid_skill_dirs() -> Result<bool> {
@@ -701,7 +867,7 @@ fn sync_parent_dir(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{central_repo, skill_store::SkillStore};
+    use crate::core::skill_store::{PluginRecord, SkillStore};
     use std::sync::MutexGuard;
     use tempfile::{TempDir, tempdir};
 
@@ -877,5 +1043,62 @@ mod tests {
             after.updated_at, 1_000_000,
             "updated_at must be refreshed when skill content changes"
         );
+    }
+
+    #[test]
+    fn plugin_metadata_excludes_and_preserves_machine_state() {
+        let repo = test_repo();
+        let skill_path = write_skill_dir("plugin-skill");
+        repo.store
+            .insert_skill(&sample_skill("plugin-skill", &skill_path))
+            .unwrap();
+        let plugin = PluginRecord {
+            id: "plugin-1".to_string(),
+            slug: "plugin".to_string(),
+            kind: "cursor".to_string(),
+            name: "plugin".to_string(),
+            display_name: "Plugin".to_string(),
+            description: Some("package".to_string()),
+            version: Some("1.0.0".to_string()),
+            source_ref: Some("https://example.test/plugins".to_string()),
+            source_ref_resolved: Some("https://example.test/plugins.git".to_string()),
+            source_branch: Some("main".to_string()),
+            source_revision: Some("abc123".to_string()),
+            author: Some("Owner".to_string()),
+            homepage: None,
+            active: true,
+            created_at: 1,
+            updated_at: 1,
+        };
+        repo.store.upsert_plugin(&plugin).unwrap();
+        repo.store
+            .replace_plugin_skills(&plugin.id, &["plugin-skill".to_string()])
+            .unwrap();
+        repo.store
+            .set_plugin_setup_state(&plugin.id, r#"{"local":true}"#)
+            .unwrap();
+        repo.store
+            .add_plugin_managed_target(&crate::core::skill_store::PluginManagedTargetRecord {
+                plugin_id: plugin.id.clone(),
+                skill_id: "plugin-skill".to_string(),
+                tool: "cursor".to_string(),
+            })
+            .unwrap();
+
+        write_all_from_db_unlocked(&repo.store).unwrap();
+        let metadata = fs::read_to_string(metadata_dir().join("plugins/plugin-1.json")).unwrap();
+        assert!(metadata.contains("\"plugin_id\": \"plugin-1\""));
+        assert!(!metadata.contains("local"));
+        assert!(!metadata.contains("managed_targets"));
+        reindex_from_metadata_unlocked(&repo.store).unwrap();
+
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &repo.store.get_plugin_setup_state("plugin-1").unwrap(),
+            )
+            .unwrap(),
+            serde_json::json!({"local": true})
+        );
+        assert_eq!(repo.store.list_plugin_managed_targets().unwrap().len(), 1);
     }
 }

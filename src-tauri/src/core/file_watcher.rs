@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::Emitter;
 
-use super::{central_repo, skill_store::SkillStore, tool_adapters};
+use super::{central_repo, plugins, skill_store::SkillStore, tool_adapters};
 
 const APP_FS_CHANGED_EVENT: &str = "app-files-changed";
 const WATCH_RESCAN_INTERVAL: Duration = Duration::from_secs(3);
@@ -158,6 +158,12 @@ fn collect_watch_paths(store: &SkillStore) -> Vec<PathBuf> {
         paths.push(adapter.skills_dir());
         paths.extend(adapter.all_scan_dirs());
     }
+
+    paths.extend(
+        plugins::pstack_document_paths()
+            .into_iter()
+            .filter_map(|(_, path)| path.parent().map(Path::to_path_buf)),
+    );
 
     if let Ok(projects) = store.get_all_projects() {
         let adapters = tool_adapters::all_tool_adapters(store);

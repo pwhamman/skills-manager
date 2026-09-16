@@ -117,6 +117,65 @@ pub struct ScenarioSkillToolToggleRecord {
     pub updated_at: i64,
 }
 
+/// Portable plugin package record. Setup documents, setup state, and managed
+/// target rows intentionally use separate machine-local records.
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginRecord {
+    pub id: String,
+    pub slug: String,
+    pub kind: String,
+    pub name: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    pub source_ref: Option<String>,
+    pub source_ref_resolved: Option<String>,
+    pub source_branch: Option<String>,
+    pub source_revision: Option<String>,
+    pub author: Option<String>,
+    pub homepage: Option<String>,
+    pub active: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginLocalDocumentRecord {
+    pub plugin_id: String,
+    pub document_key: String,
+    pub content: String,
+    pub content_hash: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginManagedTargetRecord {
+    pub plugin_id: String,
+    pub skill_id: String,
+    pub tool: String,
+}
+
+fn plugin_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<PluginRecord> {
+    Ok(PluginRecord {
+        id: row.get(0)?,
+        slug: row.get(1)?,
+        kind: row.get(2)?,
+        name: row.get(3)?,
+        display_name: row.get(4)?,
+        description: row.get(5)?,
+        version: row.get(6)?,
+        source_ref: row.get(7)?,
+        source_ref_resolved: row.get(8)?,
+        source_branch: row.get(9)?,
+        source_revision: row.get(10)?,
+        author: row.get(11)?,
+        homepage: row.get(12)?,
+        active: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+    })
+}
+
 impl SkillStore {
     pub fn new(db_path: &PathBuf) -> Result<Self> {
         let conn = Connection::open(db_path)?;
@@ -1551,6 +1610,348 @@ impl SkillStore {
                 tx.execute(
                     "INSERT INTO profile_folders (profile_id, folder_name) VALUES (?1, ?2)",
                     params![profile.id, folder],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    // ── Plugin packages ──
+
+    pub fn get_all_plugins(&self) -> Result<Vec<PluginRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, slug, kind, name, display_name, description, version,
+                    source_ref, source_ref_resolved, source_branch, source_revision,
+                    author, homepage, active, created_at, updated_at
+             FROM plugins ORDER BY display_name COLLATE NOCASE, id",
+        )?;
+        let plugins = stmt
+            .query_map([], plugin_record)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(plugins)
+    }
+
+    pub fn get_plugin_by_id(&self, plugin_id: &str) -> Result<Option<PluginRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, slug, kind, name, display_name, description, version,
+                    source_ref, source_ref_resolved, source_branch, source_revision,
+                    author, homepage, active, created_at, updated_at
+             FROM plugins WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![plugin_id], plugin_record)?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
+    /// UUID and slug are exact identities. Display-name lookup is a convenience
+    /// only and explicitly rejects case-insensitive ambiguity.
+    pub fn resolve_plugin_reference(&self, reference: &str) -> Result<Option<PluginRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut direct = conn.prepare(
+            "SELECT id, slug, kind, name, display_name, description, version,
+                    source_ref, source_ref_resolved, source_branch, source_revision,
+                    author, homepage, active, created_at, updated_at
+             FROM plugins WHERE id = ?1 OR slug = ?1 COLLATE NOCASE",
+        )?;
+        let direct_matches = direct
+            .query_map(params![reference], plugin_record)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if direct_matches.len() > 1 {
+            anyhow::bail!("plugin reference is ambiguous: {reference}");
+        }
+        if let Some(plugin) = direct_matches.into_iter().next() {
+            return Ok(Some(plugin));
+        }
+
+        let mut display = conn.prepare(
+            "SELECT id, slug, kind, name, display_name, description, version,
+                    source_ref, source_ref_resolved, source_branch, source_revision,
+                    author, homepage, active, created_at, updated_at
+             FROM plugins WHERE display_name = ?1 COLLATE NOCASE",
+        )?;
+        let matches = display
+            .query_map(params![reference], plugin_record)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(matches.into_iter().next()),
+            _ => anyhow::bail!("plugin display name is ambiguous: {reference}"),
+        }
+    }
+
+    pub fn upsert_plugin(&self, plugin: &PluginRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO plugins (
+                id, slug, kind, name, display_name, description, version,
+                source_ref, source_ref_resolved, source_branch, source_revision,
+                author, homepage, active, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+             ON CONFLICT(id) DO UPDATE SET
+                slug = excluded.slug, kind = excluded.kind, name = excluded.name,
+                display_name = excluded.display_name, description = excluded.description,
+                version = excluded.version, source_ref = excluded.source_ref,
+                source_ref_resolved = excluded.source_ref_resolved,
+                source_branch = excluded.source_branch,
+                source_revision = excluded.source_revision, author = excluded.author,
+                homepage = excluded.homepage, active = excluded.active,
+                updated_at = excluded.updated_at",
+            params![
+                plugin.id, plugin.slug, plugin.kind, plugin.name, plugin.display_name,
+                plugin.description, plugin.version, plugin.source_ref,
+                plugin.source_ref_resolved, plugin.source_branch, plugin.source_revision,
+                plugin.author, plugin.homepage, plugin.active, plugin.created_at, plugin.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_plugin(&self, plugin_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let dependent_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM plugin_dependencies WHERE dependency_id = ?1",
+            params![plugin_id],
+            |row| row.get(0),
+        )?;
+        if dependent_count > 0 {
+            anyhow::bail!("cannot delete plugin while another plugin depends on it");
+        }
+        conn.execute("DELETE FROM plugins WHERE id = ?1", params![plugin_id])?;
+        Ok(())
+    }
+
+    pub fn get_plugin_skill_ids(&self, plugin_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT skill_id FROM plugin_skills WHERE plugin_id = ?1
+             ORDER BY sort_order, skill_id",
+        )?;
+        let skill_ids = stmt
+            .query_map(params![plugin_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(skill_ids)
+    }
+
+    pub fn replace_plugin_skills(&self, plugin_id: &str, skill_ids: &[String]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM plugin_skills WHERE plugin_id = ?1", params![plugin_id])?;
+        for (sort_order, skill_id) in skill_ids.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO plugin_skills (plugin_id, skill_id, sort_order) VALUES (?1, ?2, ?3)",
+                params![plugin_id, skill_id, sort_order as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_plugin_dependency_ids(&self, plugin_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT dependency_id FROM plugin_dependencies WHERE plugin_id = ?1
+             ORDER BY dependency_id",
+        )?;
+        let dependency_ids = stmt
+            .query_map(params![plugin_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(dependency_ids)
+    }
+
+    pub fn replace_plugin_dependencies(&self, plugin_id: &str, dependency_ids: &[String]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM plugin_dependencies WHERE plugin_id = ?1", params![plugin_id])?;
+        for dependency_id in dependency_ids {
+            tx.execute(
+                "INSERT INTO plugin_dependencies (plugin_id, dependency_id) VALUES (?1, ?2)",
+                params![plugin_id, dependency_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_active_plugin_ids(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id FROM plugins WHERE active = 1 ORDER BY id",
+        )?;
+        let plugin_ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(plugin_ids)
+    }
+
+    pub fn set_plugin_active(&self, plugin_id: &str, active: bool) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE plugins SET active = ?2, updated_at = ?3 WHERE id = ?1",
+            params![plugin_id, active, chrono::Utc::now().timestamp_millis()],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_plugin_setup_state(&self, plugin_id: &str) -> Result<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO plugin_machine_settings (plugin_id, setup_state) VALUES (?1, '{}')",
+            params![plugin_id],
+        )?;
+        conn.query_row(
+            "SELECT setup_state FROM plugin_machine_settings WHERE plugin_id = ?1",
+            params![plugin_id],
+            |row| row.get(0),
+        ).map_err(Into::into)
+    }
+
+    pub fn set_plugin_setup_state(&self, plugin_id: &str, setup_state: &str) -> Result<()> {
+        let value: serde_json::Value = serde_json::from_str(setup_state)?;
+        if !value.is_object() {
+            anyhow::bail!("plugin setup state must be a JSON object");
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO plugin_machine_settings (plugin_id, setup_state) VALUES (?1, ?2)
+             ON CONFLICT(plugin_id) DO UPDATE SET setup_state = excluded.setup_state",
+            params![plugin_id, setup_state],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_plugin_local_document(
+        &self,
+        plugin_id: &str,
+        document_key: &str,
+    ) -> Result<Option<PluginLocalDocumentRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, document_key, content, content_hash, updated_at
+             FROM plugin_local_documents WHERE plugin_id = ?1 AND document_key = ?2",
+        )?;
+        let mut rows = stmt.query_map(params![plugin_id, document_key], |row| {
+            Ok(PluginLocalDocumentRecord {
+                plugin_id: row.get(0)?,
+                document_key: row.get(1)?,
+                content: row.get(2)?,
+                content_hash: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
+    pub fn upsert_plugin_local_document(&self, document: &PluginLocalDocumentRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO plugin_local_documents (plugin_id, document_key, content, content_hash, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(plugin_id, document_key) DO UPDATE SET
+                content = excluded.content, content_hash = excluded.content_hash, updated_at = excluded.updated_at",
+            params![
+                document.plugin_id, document.document_key, document.content,
+                document.content_hash, document.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_plugin_managed_targets(&self) -> Result<Vec<PluginManagedTargetRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, skill_id, tool FROM plugin_managed_targets
+             ORDER BY plugin_id, skill_id, tool",
+        )?;
+        let targets = stmt
+            .query_map([], |row| {
+                Ok(PluginManagedTargetRecord {
+                    plugin_id: row.get(0)?,
+                    skill_id: row.get(1)?,
+                    tool: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(targets)
+    }
+
+    pub fn add_plugin_managed_target(&self, target: &PluginManagedTargetRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO plugin_managed_targets (plugin_id, skill_id, tool)
+             VALUES (?1, ?2, ?3)",
+            params![target.plugin_id, target.skill_id, target.tool],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_plugin_managed_target(&self, plugin_id: &str, skill_id: &str, tool: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM plugin_managed_targets WHERE plugin_id = ?1 AND skill_id = ?2 AND tool = ?3",
+            params![plugin_id, skill_id, tool],
+        )?;
+        Ok(())
+    }
+
+    /// Replace portable package data after metadata reindexing. The local-only
+    /// tables survive for every retained plugin id because package rows are
+    /// updated in place rather than deleted and recreated.
+    pub fn replace_plugins_from_metadata(
+        &self,
+        plugins: &[PluginRecord],
+        members: &std::collections::HashMap<String, Vec<String>>,
+        dependencies: &std::collections::HashMap<String, Vec<String>>,
+    ) -> Result<()> {
+        let incoming: std::collections::HashSet<&str> =
+            plugins.iter().map(|plugin| plugin.id.as_str()).collect();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let existing: Vec<String> = tx
+            .prepare("SELECT id FROM plugins")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        for stale in existing.iter().filter(|id| !incoming.contains(id.as_str())) {
+            tx.execute("DELETE FROM plugins WHERE id = ?1", params![stale])?;
+        }
+        for plugin in plugins {
+            tx.execute(
+                "INSERT INTO plugins (
+                    id, slug, kind, name, display_name, description, version,
+                    source_ref, source_ref_resolved, source_branch, source_revision,
+                    author, homepage, active, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                 ON CONFLICT(id) DO UPDATE SET
+                    slug = excluded.slug, kind = excluded.kind, name = excluded.name,
+                    display_name = excluded.display_name, description = excluded.description,
+                    version = excluded.version, source_ref = excluded.source_ref,
+                    source_ref_resolved = excluded.source_ref_resolved,
+                    source_branch = excluded.source_branch,
+                    source_revision = excluded.source_revision, author = excluded.author,
+                    homepage = excluded.homepage, active = excluded.active,
+                    updated_at = excluded.updated_at",
+                params![
+                    plugin.id, plugin.slug, plugin.kind, plugin.name, plugin.display_name,
+                    plugin.description, plugin.version, plugin.source_ref,
+                    plugin.source_ref_resolved, plugin.source_branch, plugin.source_revision,
+                    plugin.author, plugin.homepage, plugin.active, plugin.created_at, plugin.updated_at,
+                ],
+            )?;
+        }
+        tx.execute("DELETE FROM plugin_skills", [])?;
+        tx.execute("DELETE FROM plugin_dependencies", [])?;
+        for plugin in plugins {
+            for (sort_order, skill_id) in members.get(&plugin.id).into_iter().flatten().enumerate() {
+                tx.execute(
+                    "INSERT INTO plugin_skills (plugin_id, skill_id, sort_order) VALUES (?1, ?2, ?3)",
+                    params![plugin.id, skill_id, sort_order as i64],
+                )?;
+            }
+            for dependency_id in dependencies.get(&plugin.id).into_iter().flatten() {
+                tx.execute(
+                    "INSERT INTO plugin_dependencies (plugin_id, dependency_id) VALUES (?1, ?2)",
+                    params![plugin.id, dependency_id],
                 )?;
             }
         }

@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 
-use super::{central_repo, scenario_service, skill_store::SkillStore, sync_metadata, tool_service};
+use super::{central_repo, plugins, scenario_service, skill_store::SkillStore, sync_metadata, tool_service};
 
 /// Per-stage timings collected during `initialize_store`. The struct is
 /// returned to the caller so the log lines can be emitted once
@@ -110,6 +110,9 @@ fn initialize_store_inner(
             .context("Failed to initialize CLI scenario state")?;
         timings.apply_scenario_kind = "cli";
     }
+
+    plugins::reconcile_active_plugins(&store)
+        .context("Failed to reconcile active plugin packages")?;
     timings.apply_scenario_ms = step.elapsed().as_millis();
 
     timings.total_ms = total_start.elapsed().as_millis();
