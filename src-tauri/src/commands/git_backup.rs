@@ -1129,6 +1129,81 @@ mod tests {
             Some(token_url)
         );
     }
+    #[test]
+    fn exclusion_deletes_selected_skill_and_preserves_policy() {
+        let env = test_env();
+        let skill_id = "skill-1".to_string();
+        let central = env.skills_dir.join("alpha");
+        let target = env._tmp.path().join("target-alpha");
+        std::fs::create_dir_all(&central).unwrap();
+        std::fs::write(central.join("SKILL.md"), "alpha").unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        env.store
+            .insert_skill(&crate::core::skill_store::SkillRecord {
+                id: skill_id.clone(),
+                name: "Alpha".to_string(),
+                description: None,
+                source_type: "import".to_string(),
+                source_ref: None,
+                source_ref_resolved: None,
+                source_subpath: None,
+                source_branch: None,
+                source_revision: None,
+                remote_revision: None,
+                central_path: central.to_string_lossy().to_string(),
+                content_hash: None,
+                enabled: true,
+                created_at: 1,
+                updated_at: 1,
+                status: "ok".to_string(),
+                update_status: "unknown".to_string(),
+                last_checked_at: None,
+                last_check_error: None,
+            })
+            .unwrap();
+        env.store
+            .insert_target(&crate::core::skill_store::SkillTargetRecord {
+                id: "target-1".to_string(),
+                skill_id: skill_id.clone(),
+                tool: "test".to_string(),
+                target_path: target.to_string_lossy().to_string(),
+                mode: "copy".to_string(),
+                status: "ok".to_string(),
+                synced_at: None,
+                last_error: None,
+                source_hash: None,
+            })
+            .unwrap();
+        sync_metadata::write_all_from_db_unlocked(&env.store).unwrap();
+
+        let err = git_backup_exclude_skills_unlocked(
+            &env.store,
+            &env.skills_dir,
+            &[skill_id.clone(), "missing".to_string()],
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, crate::core::error::ErrorKind::NotFound);
+        assert!(central.exists());
+
+        git_backup_exclude_skills_unlocked(&env.store, &env.skills_dir, &[skill_id.clone()])
+            .unwrap();
+        assert!(!central.exists());
+        assert!(!target.exists());
+        assert!(env.store.get_skill_by_id(&skill_id).unwrap().is_none());
+        assert!(!env
+            .skills_dir
+            .join(".skills-manager/skills/skill-1.json")
+            .exists());
+        assert_eq!(
+            git_backup::list_backup_exclusions_unlocked(&env.skills_dir).unwrap(),
+            vec![git_backup::BackupExclusionSummary {
+                skill_id: skill_id.clone(),
+                name: "Alpha".to_string(),
+            }]
+        );
+        assert!(git_backup::delete_backup_exclusion_unlocked(&env.skills_dir, &skill_id).unwrap());
+        assert!(env.store.get_skill_by_id(&skill_id).unwrap().is_none());
+    }
 }
 
 pub(crate) fn reconcile_skills_index_unlocked(store: &SkillStore) -> anyhow::Result<()> {

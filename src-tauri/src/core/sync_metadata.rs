@@ -118,7 +118,10 @@ pub(crate) fn reindex_from_metadata_unlocked(store: &SkillStore) -> Result<()> {
     if !metadata_exists() {
         return Ok(());
     }
-    if !has_complete_skill_snapshot() {
+    let has_schema = metadata_dir().join("schema.json").is_file();
+    if !has_schema
+        || (!metadata_dir().join("skills").is_dir() && central_repo_has_valid_skill_dirs()?)
+    {
         bail!("incomplete sync metadata snapshot: missing schema.json or skills directory");
     }
 
