@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronRight, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useApp } from "../context/AppContext";
@@ -10,7 +11,7 @@ import type { Profile } from "../lib/tauri";
 export function Profiles() {
   const { t } = useTranslation();
   const { profiles, refreshProfiles } = useApp();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [document, setDocument] = useState("");
   const [nameDraft, setNameDraft] = useState("");
@@ -18,11 +19,11 @@ export function Profiles() {
   const [homeFolders, setHomeFolders] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
-  const [profilesOpen, setProfilesOpen] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const isCreating = searchParams.get("new") === "1";
+  const requestedProfileId = searchParams.get("profile");
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
 
-  const selected = profiles.find((profile) => profile.id === selectedId) ?? profiles[0] ?? null;
+  const selected = profiles.find((profile) => profile.id === requestedProfileId) ?? profiles[0] ?? null;
 
   useEffect(() => {
     if (!selected) {
@@ -30,10 +31,12 @@ export function Profiles() {
       setSelectedFolder(null);
       return;
     }
-    setSelectedId(selected.id);
     setNameDraft(selected.name);
     setSelectedFolder(null);
-  }, [selected?.id]);
+    if (!isCreating && requestedProfileId !== selected.id) {
+      setSearchParams({ profile: selected.id }, { replace: true });
+    }
+  }, [isCreating, requestedProfileId, selected?.id, setSearchParams]);
 
   useEffect(() => {
     if (!selected) {
@@ -54,10 +57,9 @@ export function Profiles() {
     if (!name) return;
     const profile = await api.createProfile(name);
     setNewName("");
-    setCreating(false);
-    setSelectedId(profile.id);
     setSelectedFolder(null);
     await refreshProfiles();
+    setSearchParams({ profile: profile.id });
     toast.success(t("profiles.created"));
   };
 
@@ -108,83 +110,29 @@ export function Profiles() {
         <p className="app-page-subtitle">{t("profiles.description")}</p>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="h-fit">
-          <div className="mb-1.5 px-2.5">
-            <button
-              type="button"
-              onClick={() => setProfilesOpen((open) => !open)}
-              className="flex min-w-0 items-center gap-1 text-left outline-none"
-            >
-              {profilesOpen
-                ? <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-                : <ChevronRight className="h-3 w-3 shrink-0 text-faint" />}
-              <span className="truncate text-[12px] font-semibold tracking-[0.01em] text-muted">
-                {t("sidebar.profiles")}
-              </span>
+      {isCreating || !selected ? (
+        <section className="app-panel max-w-md p-5">
+          <h2 className="text-[14px] font-semibold text-primary">{t("profiles.new")}</h2>
+          <form
+            className="mt-4 flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createProfile();
+            }}
+          >
+            <input
+              autoFocus
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder={t("profiles.namePlaceholder")}
+              className="app-input min-w-0 flex-1"
+            />
+            <button type="submit" className="app-button-primary h-10 w-10 shrink-0 p-0" aria-label={t("profiles.new")}>
+              <Plus className="h-4 w-4" />
             </button>
-          </div>
-          {profilesOpen && (
-            <>
-              <div className="space-y-0.5">
-                {profiles.map((profile) => {
-                  const isSelected = selected?.id === profile.id;
-                  return (
-                    <button
-                      key={profile.id}
-                      type="button"
-                      onClick={() => {
-                        setCreating(false);
-                        setSelectedId(profile.id);
-                        setSelectedFolder(null);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-left text-sm leading-5 transition-colors ${isSelected ? "bg-surface-active font-medium text-primary" : "text-tertiary hover:bg-surface-hover hover:text-secondary"}`}
-                    >
-                      <span className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border ${isSelected ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"}`}>
-                        <FileText className="h-3 w-3" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{profile.name}</span>
-                      {profile.active && <Check className="h-4 w-4 shrink-0 text-accent" aria-label={t("profiles.active")} />}
-                    </button>
-                  );
-                })}
-                {profiles.length === 0 && <p className="px-2.5 py-2 text-[13px] text-muted">{t("profiles.noProfiles")}</p>}
-              </div>
-              {creating ? (
-                <form
-                  className="mt-1 flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void createProfile();
-                  }}
-                >
-                  <input
-                    autoFocus
-                    value={newName}
-                    onChange={(event) => setNewName(event.target.value)}
-                    onBlur={() => { if (!newName.trim()) setCreating(false); }}
-                    placeholder={t("profiles.namePlaceholder")}
-                    className="app-input h-8 min-w-0 flex-1 px-2.5"
-                  />
-                  <button type="submit" className="app-button-primary h-8 w-8 shrink-0 p-0" aria-label={t("profiles.new")}>
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </form>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setCreating(true)}
-                  className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-sm text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {t("profiles.new")}
-                </button>
-              )}
-            </>
-          )}
-        </aside>
-
-        {selected && (
+          </form>
+        </section>
+      ) : selected && (
           <section className="app-panel min-w-0 overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-3.5">
               <input
@@ -303,7 +251,6 @@ export function Profiles() {
             </div>
           </section>
         )}
-      </div>
       <ConfirmDialog
         open={deleteTarget !== null}
         message={t("profiles.deleteConfirm", { name: deleteTarget?.name ?? "" })}
@@ -311,9 +258,9 @@ export function Profiles() {
         onConfirm={async () => {
           if (!deleteTarget) return;
           await api.deleteProfile(deleteTarget.id);
-          setSelectedId(null);
           setDeleteTarget(null);
           await refreshProfiles();
+          setSearchParams({});
           toast.success(t("profiles.deleted"));
         }}
       />

@@ -49,7 +49,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, appUpdate } = useApp();
+  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, appUpdate } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string; icon?: string | null } | null>(null);
@@ -71,6 +71,7 @@ export function Sidebar() {
   const presetReorderQueueRef = useRef<Promise<void>>(Promise.resolve());
   const projectReorderQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [presetsOpen, setPresetsOpen] = useState(true);
+  const [profilesOpen, setProfilesOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [globalWorkspaceOpen, setGlobalWorkspaceOpen] = useState(true);
   const [lobsterWorkspaceOpen, setLobsterWorkspaceOpen] = useState(true);
@@ -170,10 +171,12 @@ export function Sidebar() {
     { name: t("sidebar.mySkills"), path: "/my-skills", icon: Layers },
     { name: t("sidebar.installSkills"), path: "/install", icon: Download },
     { name: t("sidebar.backup"), path: "/backup", icon: CloudUpload },
-    ...(navigator.userAgent.includes("Mac")
-      ? [{ name: t("sidebar.profiles"), path: "/profiles", icon: FileText }]
-      : []),
+    // Profile navigation is a macOS-only expandable section alongside presets.
   ];
+
+  const viewedProfileId = location.pathname === "/profiles"
+    ? new URLSearchParams(location.search).get("profile") ?? profiles[0]?.id ?? null
+    : null;
 
   const handleSwitchPreset = (id: string) => {
     setViewedPresetId(id);
@@ -423,6 +426,66 @@ export function Sidebar() {
 
         {/* Scrollable section */}
         <div className="px-2.5 flex-1 overflow-y-auto scrollbar-hide min-h-0">
+
+          {navigator.userAgent.includes("Mac") && (
+            <>
+              {/* ── Profiles ── */}
+              <div className="mb-1.5 px-2.5 flex items-center gap-1">
+                <button
+                  onClick={() => setProfilesOpen((v) => !v)}
+                  className="flex min-w-0 flex-1 items-center gap-1 text-left outline-none"
+                >
+                  {profilesOpen
+                    ? <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
+                    : <ChevronRight className="h-3 w-3 shrink-0 text-faint" />}
+                  <span className="truncate text-[12px] font-semibold tracking-[0.01em] text-muted whitespace-nowrap">
+                    {t("sidebar.profiles")}
+                  </span>
+                </button>
+              </div>
+              {profilesOpen && (
+                <>
+                  <div className="space-y-0.5">
+                    {profiles.map((profile) => {
+                      const isActive = viewedProfileId === profile.id;
+                      return (
+                        <button
+                          key={profile.id}
+                          type="button"
+                          onClick={() => navigate(`/profiles?profile=${encodeURIComponent(profile.id)}`)}
+                          className={cn(
+                            "flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-[7px] text-left text-sm leading-5 transition-colors outline-none",
+                            isActive
+                              ? "bg-surface-active font-medium text-primary"
+                              : "text-tertiary hover:bg-surface-hover hover:text-secondary"
+                          )}
+                        >
+                          <span className={cn(
+                            "flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border",
+                            isActive
+                              ? "border-accent/30 bg-accent/10 text-accent"
+                              : "border-border bg-surface text-muted"
+                          )}>
+                            <FileText className="h-3 w-3" />
+                          </span>
+                          <span className="flex-1 truncate">{profile.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/profiles?new=1")}
+                    className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-sm text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t("profiles.new")}
+                  </button>
+                </>
+              )}
+              <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
+            </>
+          )}
 
           {/* ── Presets ── */}
           <div className="mb-1.5 px-2.5 flex items-center gap-1">
