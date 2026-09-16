@@ -1271,6 +1271,55 @@ export function Backup() {
               </div>
             )}
           </section>
+          <section className="app-panel p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-[14px] font-semibold text-secondary">{t("backup.exclusions.title")}</h2>
+                <p className="mt-1 text-[12px] leading-5 text-muted">{t("backup.exclusions.desc")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExclusionPickerOpen(true)}
+                className="shrink-0 rounded-lg border border-border-subtle px-2.5 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover"
+              >
+                {t("backup.exclusions.add")}
+              </button>
+            </div>
+            {exclusions.length === 0 ? (
+              <p className="mt-3 rounded-md border border-dashed border-border-subtle px-3 py-2 text-[12px] leading-5 text-muted">
+                {t("backup.exclusions.empty")}
+              </p>
+            ) : (
+              <ul className="mt-3 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                {exclusions.map((exclusion) => {
+                  const stale = !managedSkills.some((skill) => skill.id === exclusion.skill_id);
+                  const removing = removingExclusionId === exclusion.skill_id;
+                  return (
+                    <li
+                      key={exclusion.skill_id}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-secondary px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-medium text-secondary">{exclusion.name}</div>
+                        {stale && (
+                          <div className="mt-0.5 text-[11px] text-faint">{t("backup.exclusions.stale")}</div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveExclusion(exclusion.skill_id)}
+                        disabled={removing}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border-subtle px-2 text-[11px] font-medium text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
+                      >
+                        {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        {t("backup.exclusions.remove")}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
         </div>
 
         <aside className="space-y-4">
@@ -1313,55 +1362,6 @@ export function Backup() {
             )}
           </section>
 
-          <section className="app-panel p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-[14px] font-semibold text-secondary">{t("backup.exclusions.title")}</h2>
-                <p className="mt-1 text-[12px] leading-5 text-muted">{t("backup.exclusions.desc")}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExclusionPickerOpen(true)}
-                className="shrink-0 rounded-lg border border-border-subtle px-2.5 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover"
-              >
-                {t("backup.exclusions.add")}
-              </button>
-            </div>
-            {exclusions.length === 0 ? (
-              <p className="mt-3 rounded-md border border-dashed border-border-subtle px-3 py-2 text-[12px] leading-5 text-muted">
-                {t("backup.exclusions.empty")}
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {exclusions.map((exclusion) => {
-                  const stale = !managedSkills.some((skill) => skill.id === exclusion.skill_id);
-                  const removing = removingExclusionId === exclusion.skill_id;
-                  return (
-                    <li
-                      key={exclusion.skill_id}
-                      className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-secondary px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-secondary">{exclusion.name}</div>
-                        {stale && (
-                          <div className="mt-0.5 text-[11px] text-faint">{t("backup.exclusions.stale")}</div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleRemoveExclusion(exclusion.skill_id)}
-                        disabled={removing}
-                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border-subtle px-2 text-[11px] font-medium text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
-                      >
-                        {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                        {t("backup.exclusions.remove")}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
 
           <section className="app-panel p-4">
             <div className="flex items-start justify-between gap-3">
