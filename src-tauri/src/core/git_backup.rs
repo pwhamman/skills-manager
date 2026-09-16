@@ -2586,4 +2586,28 @@ mod tests {
             "unexpected message: {msg}"
         );
     }
+    #[test]
+    fn backup_exclusions_are_sorted_validated_and_removable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skills_dir = tmp.path();
+
+        write_backup_exclusion_unlocked(skills_dir, "two", "beta").unwrap();
+        write_backup_exclusion_unlocked(skills_dir, "one", "Alpha").unwrap();
+        assert_eq!(
+            list_backup_exclusions_unlocked(skills_dir).unwrap(),
+            vec![
+                BackupExclusionSummary { skill_id: "one".into(), name: "Alpha".into() },
+                BackupExclusionSummary { skill_id: "two".into(), name: "beta".into() },
+            ]
+        );
+        assert!(delete_backup_exclusion_unlocked(skills_dir, "one").unwrap());
+        assert!(!delete_backup_exclusion_unlocked(skills_dir, "one").unwrap());
+
+        std::fs::write(
+            backup_exclusions_dir(skills_dir).join("broken.json"),
+            r#"{"schema_version":1,"skill_id":"other","name":"Broken"}"#,
+        )
+        .unwrap();
+        assert!(list_backup_exclusions_unlocked(skills_dir).is_err());
+    }
 }
