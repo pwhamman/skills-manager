@@ -867,6 +867,8 @@
     "title": "Profiles",
     "description": "Manage the AGENTS.md documents deployed to your coding agents and immediate home folders.",
     "new": "New Profile",
+    "create": "Create New Profile",
+    "name": "Profile Name",
     "namePlaceholder": "Profile name",
     "activate": "Activate",
     "active": "Active",

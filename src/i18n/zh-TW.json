@@ -794,6 +794,8 @@
     "title": "設定檔",
     "description": "管理部署到編碼 Agent 與主目錄第一層資料夾的 AGENTS.md 文件。",
     "new": "新增設定檔",
+    "create": "建立設定檔",
+    "name": "設定檔名稱",
     "namePlaceholder": "設定檔名稱",
     "activate": "啟用",
     "active": "已啟用",

@@ -867,6 +867,8 @@
     "title": "配置文件",
     "description": "管理部署到编码 Agent 和主目录一级文件夹的 AGENTS.md 文档。",
     "new": "新建配置文件",
+    "create": "新建配置文件",
+    "name": "配置文件名称",
     "namePlaceholder": "配置文件名称",
     "activate": "激活",
     "active": "已激活",

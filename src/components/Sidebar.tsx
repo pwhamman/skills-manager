@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { cn } from "../utils";
 import { useApp } from "../context/AppContext";
 import { CreatePresetDialog } from "./CreatePresetDialog";
+import { CreateProfileDialog } from "./CreateProfileDialog";
 import { RenamePresetDialog } from "./RenamePresetDialog";
 import { AddProjectDialog } from "./AddProjectDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -49,8 +50,9 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, appUpdate } = useApp();
+  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, refreshProfiles, appUpdate } = useApp();
   const [showCreate, setShowCreate] = useState(false);
+  const [showCreateProfile, setShowCreateProfile] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string; icon?: string | null } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -192,6 +194,13 @@ export function Sidebar() {
       navigate("/my-skills");
     }
     toast.success(t("preset.created"));
+  };
+
+  const handleCreateProfile = async (name: string) => {
+    const profile = await api.createProfile(name);
+    await refreshProfiles();
+    navigate(`/profiles?profile=${encodeURIComponent(profile.id)}`);
+    toast.success(t("profiles.created"));
   };
 
   const handleRenamePreset = async (newName: string, icon?: string) => {
@@ -475,7 +484,7 @@ export function Sidebar() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => navigate("/profiles?new=1")}
+                    onClick={() => setShowCreateProfile(true)}
                     className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-sm text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -804,6 +813,12 @@ export function Sidebar() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         onCreate={handleCreatePreset}
+      />
+
+      <CreateProfileDialog
+        open={showCreateProfile}
+        onClose={() => setShowCreateProfile(false)}
+        onCreate={handleCreateProfile}
       />
 
       <RenamePresetDialog

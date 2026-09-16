@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, FileText, FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -15,11 +15,9 @@ export function Profiles() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [document, setDocument] = useState("");
   const [nameDraft, setNameDraft] = useState("");
-  const [newName, setNewName] = useState("");
   const [homeFolders, setHomeFolders] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
-  const isCreating = searchParams.get("new") === "1";
   const requestedProfileId = searchParams.get("profile");
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
 
@@ -33,10 +31,10 @@ export function Profiles() {
     }
     setNameDraft(selected.name);
     setSelectedFolder(null);
-    if (!isCreating && requestedProfileId !== selected.id) {
+    if (requestedProfileId !== selected.id) {
       setSearchParams({ profile: selected.id }, { replace: true });
     }
-  }, [isCreating, requestedProfileId, selected?.id, setSearchParams]);
+  }, [requestedProfileId, selected?.id, setSearchParams]);
 
   useEffect(() => {
     if (!selected) {
@@ -52,16 +50,6 @@ export function Profiles() {
     api.listProfileHomeFolders().then(setHomeFolders).catch(() => setHomeFolders([]));
   }, []);
 
-  const createProfile = async () => {
-    const name = newName.trim();
-    if (!name) return;
-    const profile = await api.createProfile(name);
-    setNewName("");
-    setSelectedFolder(null);
-    await refreshProfiles();
-    setSearchParams({ profile: profile.id });
-    toast.success(t("profiles.created"));
-  };
 
   const renameProfile = async () => {
     if (!selected || !nameDraft.trim() || nameDraft.trim() === selected.name) return;
@@ -110,29 +98,7 @@ export function Profiles() {
         <p className="app-page-subtitle">{t("profiles.description")}</p>
       </div>
 
-      {isCreating || !selected ? (
-        <section className="app-panel max-w-md p-5">
-          <h2 className="text-[14px] font-semibold text-primary">{t("profiles.new")}</h2>
-          <form
-            className="mt-4 flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void createProfile();
-            }}
-          >
-            <input
-              autoFocus
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder={t("profiles.namePlaceholder")}
-              className="app-input min-w-0 flex-1"
-            />
-            <button type="submit" className="app-button-primary h-10 w-10 shrink-0 p-0" aria-label={t("profiles.new")}>
-              <Plus className="h-4 w-4" />
-            </button>
-          </form>
-        </section>
-      ) : selected && (
+      {selected && (
           <section className="app-panel min-w-0 overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-3.5">
               <input
@@ -250,7 +216,7 @@ export function Profiles() {
               </div>
             </div>
           </section>
-        )}
+      )}
       <ConfirmDialog
         open={deleteTarget !== null}
         message={t("profiles.deleteConfirm", { name: deleteTarget?.name ?? "" })}
