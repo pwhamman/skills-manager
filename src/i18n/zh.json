@@ -13,6 +13,7 @@
     "newPreset": "新建 Preset",
     "projects": "项目工作区",
     "addProject": "关联项目",
+    "profiles": "配置文件",
     "settings": "设置"
   },
   "help": {
@@ -861,6 +862,27 @@
     "deleted": "Preset 已删除",
     "created": "Preset 已创建",
     "switched": "已切换到 \"{{name}}\""
+  },
+  "profiles": {
+    "title": "配置文件",
+    "description": "管理部署到编码 Agent 和主目录一级文件夹的 AGENTS.md 文档。",
+    "new": "新建配置文件",
+    "namePlaceholder": "配置文件名称",
+    "activate": "激活",
+    "active": "已激活",
+    "save": "保存",
+    "saved": "配置文件文档已保存",
+    "canonical": "全局 AGENTS.md",
+    "folders": "主目录文件夹",
+    "folderHint": "只能管理主目录下的一级文件夹。",
+    "addFolder": "添加文件夹",
+    "removeFolder": "移除",
+    "noProfiles": "创建配置文件以管理 Agent 指令。",
+    "deleteConfirm": "删除配置文件“{{name}}”？其托管文档将从中央仓库中移除。",
+    "created": "配置文件已创建",
+    "deleted": "配置文件已删除",
+    "renamed": "配置文件已重命名",
+    "activated": "配置文件已激活"
   },
   "project": {
     "title": "项目 Skills",

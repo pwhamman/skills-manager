@@ -18,6 +18,9 @@ pub static QUITTING: AtomicBool = AtomicBool::new(false);
 /// drop preset clicks during long-running update checks.
 static TRAY_PRESET_APPLY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[cfg(target_os = "macos")]
+static TRAY_PROFILE_ACTIVATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Tracks whether a manual "Check for skill updates" is currently running so the
 /// tray menu can render a disabled "Checking for updates..." label.
 static TRAY_CHECK_UPDATES_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -25,6 +28,8 @@ static TRAY_CHECK_UPDATES_RUNNING: AtomicBool = AtomicBool::new(false);
 const MAIN_TRAY_ID: &str = "main-tray";
 const TRAY_PRESET_ADD_PREFIX: &str = "tray-preset-add:";
 const TRAY_PRESET_REMOVE_PREFIX: &str = "tray-preset-remove:";
+#[cfg(target_os = "macos")]
+const TRAY_PROFILE_PREFIX: &str = "tray-profile:";
 const TRAY_OPEN_UPDATES_ID: &str = "tray-open-updates";
 const TRAY_OPEN_FOLDER_ID: &str = "tray-open-folder";
 const TRAY_CHECK_UPDATES_ID: &str = "tray-check-updates";
@@ -271,11 +276,12 @@ fn build_tray_menu<R: tauri::Runtime>(
     store: &Arc<core::skill_store::SkillStore>,
 ) -> tauri::Result<(tauri::menu::Menu<R>, String)> {
     let data = collect_tray_menu_data(store);
-    build_tray_menu_from_data(app, &data)
+    build_tray_menu_from_data(app, store, &data)
 }
 
 fn build_tray_menu_from_data<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    store: &Arc<core::skill_store::SkillStore>,
     data: &TrayMenuData,
 ) -> tauri::Result<(tauri::menu::Menu<R>, String)> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -343,6 +349,9 @@ fn build_tray_menu_from_data<R: tauri::Runtime>(
     }
     menu.append(&presets_submenu)?;
 
+    #[cfg(target_os = "macos")]
+    append_profiles_submenu(app, store, &menu)?;
+
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     let show_item = MenuItem::with_id(app, "show", "Open Skills Manager", true, None::<&str>)?;
@@ -379,6 +388,46 @@ fn build_tray_menu_from_data<R: tauri::Runtime>(
     Ok((menu, format_tooltip(data)))
 }
 
+#[cfg(target_os = "macos")]
+fn append_profiles_submenu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    store: &Arc<core::skill_store::SkillStore>,
+    menu: &tauri::menu::Menu<R>,
+) -> tauri::Result<()> {
+    use tauri::menu::{MenuItem, Submenu};
+
+    let submenu = Submenu::new(app, "Profiles", true)?;
+    let active = store.active_profile_id().ok().flatten();
+    let profiles = store.get_all_profiles().unwrap_or_default();
+    if profiles.is_empty() {
+        submenu.append(&MenuItem::with_id(
+            app,
+            "tray-profiles-empty",
+            "No profiles",
+            false,
+            None::<&str>,
+        )?)?;
+    } else {
+        for profile in profiles {
+            let is_active = active.as_deref() == Some(&profile.id);
+            let label = if is_active {
+                format!("✓ {}", profile.name)
+            } else {
+                profile.name
+            };
+            submenu.append(&MenuItem::with_id(
+                app,
+                format!("{TRAY_PROFILE_PREFIX}{}", profile.id),
+                label,
+                !is_active,
+                None::<&str>,
+            )?)?;
+        }
+    }
+    menu.append(&submenu)?;
+    Ok(())
+}
+
 pub(crate) fn refresh_tray_menu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<(), String> {
@@ -400,7 +449,7 @@ pub(crate) fn refresh_tray_menu<R: tauri::Runtime>(
         let Some(tray) = app_for_main.tray_by_id(MAIN_TRAY_ID) else {
             return;
         };
-        match build_tray_menu_from_data(&app_for_main, &data) {
+        match build_tray_menu_from_data(&app_for_main, &store, &data) {
             Ok((menu, tooltip)) => {
                 if let Err(err) = tray.set_menu(Some(menu)) {
                     log::warn!("tray set_menu failed: {err}");
@@ -509,6 +558,7 @@ fn apply_preset_from_tray<R: tauri::Runtime>(
             }
             Ok(Ok(false)) => {
                 // Refresh the menu so the user still sees fresh status (no
+
                 // app-files-changed because nothing actually changed on disk).
                 if let Err(err) = refresh_tray_menu(&app) {
                     log::debug!("Failed to refresh tray menu after skipped preset apply: {err}");
@@ -516,6 +566,39 @@ fn apply_preset_from_tray<R: tauri::Runtime>(
             }
             Ok(Err(err)) => log::error!("Tray preset apply failed for {preset_id}: {err}"),
             Err(err) => log::error!("Tray preset apply task panicked: {err}"),
+        }
+    });
+}
+#[cfg(target_os = "macos")]
+fn activate_profile_from_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>, profile_id: &str) {
+    let store = app
+        .state::<Arc<core::skill_store::SkillStore>>()
+        .inner()
+        .clone();
+    let app = app.clone();
+    let profile_id = profile_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let _guard = match TRAY_PROFILE_ACTIVATE_LOCK.try_lock() {
+                Ok(guard) => guard,
+                Err(_) => return Ok::<bool, String>(false),
+            };
+            core::profiles::activate_profile(&store, &profile_id).map_err(|error| error.to_string())?;
+            Ok(true)
+        })
+        .await;
+        match result {
+            Ok(Ok(true)) => {
+                if let Err(error) = refresh_tray_menu(&app) {
+                    log::warn!("Failed to refresh tray menu after profile activation: {error}");
+                }
+                if let Err(error) = app.emit("app-files-changed", ()) {
+                    log::warn!("Failed to emit profile activation change event: {error}");
+                }
+            }
+            Ok(Ok(false)) => {}
+            Ok(Err(error)) => log::error!("Tray profile activation failed: {error}"),
+            Err(error) => log::error!("Tray profile activation task panicked: {error}"),
         }
     });
 }
@@ -694,6 +777,11 @@ fn ensure_tray_icon(app: &tauri::AppHandle) -> tauri::Result<()> {
                     check_updates_from_tray(app);
                 }
                 other => {
+                    #[cfg(target_os = "macos")]
+                    if let Some(profile_id) = other.strip_prefix(TRAY_PROFILE_PREFIX) {
+                        activate_profile_from_tray(app, profile_id);
+                        return;
+                    }
                     if let Some((preset_id, mode)) = preset_id_from_menu_id(other) {
                         log::debug!("Tray menu clicked: preset {preset_id} mode {:?}", mode);
                         apply_preset_from_tray(app, preset_id, mode);
@@ -1123,6 +1211,18 @@ pub fn run() {
             commands::projects::reorder_projects,
             commands::presets::get_preset_skill_order,
             commands::presets::reorder_preset_skills,
+            // Profiles
+            commands::profiles::get_profiles,
+            commands::profiles::get_active_profile,
+            commands::profiles::create_profile,
+            commands::profiles::rename_profile,
+            commands::profiles::delete_profile,
+            commands::profiles::get_profile_document,
+            commands::profiles::save_profile_document,
+            commands::profiles::list_profile_home_folders,
+            commands::profiles::add_profile_folder,
+            commands::profiles::remove_profile_folder,
+            commands::profiles::activate_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

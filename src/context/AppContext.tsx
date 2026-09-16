@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { AppUpdateInfo, ManagedSkill, Project, Preset, ToolInfo } from "../lib/tauri";
+import type { AppUpdateInfo, ManagedSkill, Profile, Project, Preset, ToolInfo } from "../lib/tauri";
 import * as api from "../lib/tauri";
 import i18n from "../i18n";
 import { applyTextSize } from "../lib/textScale";
@@ -16,6 +16,8 @@ interface AppState {
   tools: ToolInfo[];
   managedSkills: ManagedSkill[];
   projects: Project[];
+  profiles: Profile[];
+  activeProfile: Profile | null;
   loading: boolean;
   appError: string | null;
   helpOpen: boolean;
@@ -29,6 +31,7 @@ interface AppState {
   refreshTools: () => Promise<void>;
   refreshManagedSkills: () => Promise<void>;
   refreshProjects: () => Promise<void>;
+  refreshProfiles: () => Promise<void>;
   setViewedPresetId: (id: string) => void;
   applyPresetToDefault: (id: string) => Promise<void>;
   clearAppError: () => void;
@@ -58,6 +61,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [managedSkills, setManagedSkills] = useState<ManagedSkill[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [appError, setAppError] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -128,6 +133,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshProfiles = useCallback(async () => {
+    try {
+      const [items, active] = await Promise.all([api.getProfiles(), api.getActiveProfile()]);
+      setProfiles(items);
+      setActiveProfile(active);
+    } catch (e) {
+      console.error("Failed to load profiles:", e);
+    }
+  }, []);
+
   const refreshManagedSkills = useCallback(async () => {
     try {
       const skills = await api.getManagedSkills();
@@ -143,9 +158,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshAppData = useCallback(async () => {
     setLoading(true);
-    await Promise.all([refreshPresets(), refreshTools(), refreshManagedSkills(), refreshProjects()]);
+    await Promise.all([refreshPresets(), refreshProfiles(), refreshTools(), refreshManagedSkills(), refreshProjects()]);
     setLoading(false);
-  }, [refreshManagedSkills, refreshProjects, refreshPresets, refreshTools]);
+  }, [refreshManagedSkills, refreshProfiles, refreshProjects, refreshPresets, refreshTools]);
 
   const setViewedPresetId = useCallback((id: string) => {
     setViewedPresetIdState(id);
@@ -443,6 +458,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         activePreset,
         viewedPreset,
         tools,
+        profiles,
+        activeProfile,
         managedSkills,
         projects,
         loading,
@@ -458,6 +475,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshProjects,
         setViewedPresetId,
         applyPresetToDefault: handleApplyPresetToDefault,
+        refreshProfiles,
         clearAppError: () => setAppError(null),
         openHelp: () => setHelpOpen(true),
         closeHelp: () => setHelpOpen(false),

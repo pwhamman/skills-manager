@@ -638,6 +638,18 @@ fn plan_to_edits(
         &plan.memberships,
         |(sid, skid)| format!("{METADATA_DIR}/scenario-skills/{sid}/{skid}.json"),
     );
+    diff_file_maps(
+        &mut edits,
+        &ours.profiles,
+        &plan.profiles,
+        |id| format!("{METADATA_DIR}/profiles/{id}.json"),
+    );
+    diff_file_maps(
+        &mut edits,
+        &ours.profile_documents,
+        &plan.profile_documents,
+        |path| path.clone(),
+    );
     diff_file_maps(&mut edits, &ours.residual, &plan.residual, |p| p.clone());
 
     // protocol.json: larger merge_protocol wins; ties resolve to the smaller

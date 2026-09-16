@@ -14,6 +14,9 @@ import { InstallSkills } from "./views/InstallSkills";
 import { Settings } from "./views/Settings";
 import { ProjectDetail } from "./views/ProjectDetail";
 import { Backup } from "./views/Backup";
+import { Profiles } from "./views/Profiles";
+
+const IS_MACOS = navigator.userAgent.includes("Mac");
 
 function ThemedToaster() {
   const { resolvedTheme } = useThemeContext();
@@ -48,6 +51,7 @@ function App() {
               <Route path="/install" element={<InstallSkills />} />
               <Route path="/backup" element={<Backup />} />
               <Route path="/project/:id" element={<ProjectDetail />} />
+              {IS_MACOS && <Route path="/profiles" element={<Profiles />} />}
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Routes>

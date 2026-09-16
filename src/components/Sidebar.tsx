@@ -12,6 +12,7 @@ import {
   Pencil,
   Trash2,
   FolderOpen,
+  FileText,
   GripVertical,
   Link2,
   ChevronDown,
@@ -169,6 +170,9 @@ export function Sidebar() {
     { name: t("sidebar.mySkills"), path: "/my-skills", icon: Layers },
     { name: t("sidebar.installSkills"), path: "/install", icon: Download },
     { name: t("sidebar.backup"), path: "/backup", icon: CloudUpload },
+    ...(navigator.userAgent.includes("Mac")
+      ? [{ name: t("sidebar.profiles"), path: "/profiles", icon: FileText }]
+      : []),
   ];
 
   const handleSwitchPreset = (id: string) => {

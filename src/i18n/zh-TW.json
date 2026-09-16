@@ -13,6 +13,7 @@
     "newPreset": "新增 Preset",
     "projects": "專案工作區",
     "addProject": "關聯專案",
+    "profiles": "設定檔",
     "settings": "設定"
   },
   "help": {
@@ -788,6 +789,27 @@
     "deleted": "Preset 已刪除",
     "created": "Preset 已建立",
     "switched": "已切換到「{{name}}」"
+  },
+  "profiles": {
+    "title": "設定檔",
+    "description": "管理部署到編碼 Agent 與主目錄第一層資料夾的 AGENTS.md 文件。",
+    "new": "新增設定檔",
+    "namePlaceholder": "設定檔名稱",
+    "activate": "啟用",
+    "active": "已啟用",
+    "save": "儲存",
+    "saved": "設定檔文件已儲存",
+    "canonical": "全域 AGENTS.md",
+    "folders": "主目錄資料夾",
+    "folderHint": "只能管理主目錄下的第一層資料夾。",
+    "addFolder": "新增資料夾",
+    "removeFolder": "移除",
+    "noProfiles": "建立設定檔以管理 Agent 指令。",
+    "deleteConfirm": "刪除設定檔「{{name}}」？其受管理文件將從中央儲存庫移除。",
+    "created": "設定檔已建立",
+    "deleted": "設定檔已刪除",
+    "renamed": "設定檔已重新命名",
+    "activated": "設定檔已啟用"
   },
   "project": {
     "title": "專案 Skills",

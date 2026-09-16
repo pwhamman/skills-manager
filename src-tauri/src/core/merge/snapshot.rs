@@ -7,7 +7,7 @@ use git2::{ObjectType, Oid, Repository, Tree};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::protocol::ProtocolFile;
-use crate::core::sync_metadata::SkillMetaFile;
+use crate::core::{profiles::{self, ProfileMetaFile}, sync_metadata::SkillMetaFile};
 
 pub const METADATA_DIR: &str = ".skills-manager";
 /// Marker files that make a directory a valid skill dir (mirrors
@@ -51,6 +51,10 @@ pub struct Snapshot {
     pub scenarios: BTreeMap<String, FileEntry>,
     /// (scenario_id, skill_id) → scenario-skills/{sid}/{skid}.json blob
     pub memberships: BTreeMap<(String, String), FileEntry>,
+    /// profile_id → .skills-manager/profiles/{id}.json blob.
+    pub profiles: BTreeMap<String, FileEntry>,
+    /// Portable canonical and home-folder profile documents, keyed by full repo path.
+    pub profile_documents: BTreeMap<String, FileEntry>,
     /// Repo-relative path → blob, for every file outside claimed content
     /// dirs and outside the known metadata files (`.gitignore`, stray user
     /// files, unknown future `.skills-manager` entries).
@@ -154,6 +158,50 @@ pub fn read_snapshot(repo: &Repository, tree: &Tree) -> Result<Snapshot> {
                         }
                     }
                 }
+                ("profiles", Some(ObjectType::Tree)) => {
+                    let t = repo.find_tree(entry.id())?;
+                    for e in t.iter() {
+                        let file = e.name().unwrap_or_default().to_string();
+                        let Some(id) = file.strip_suffix(".json") else {
+                            record_residual(&mut snap, format!("{METADATA_DIR}/profiles/{file}"), &e);
+                            continue;
+                        };
+                        if e.kind() != Some(ObjectType::Blob) {
+                            record_residual(&mut snap, format!("{METADATA_DIR}/profiles/{file}"), &e);
+                            continue;
+                        }
+                        let blob = repo.find_blob(e.id())?;
+                        let meta: ProfileMetaFile = serde_json::from_slice(blob.content())
+                            .with_context(|| format!("invalid profile metadata {file}"))?;
+                        if meta.profile_id != id {
+                            bail!("profile metadata {file}: profile_id does not match file name");
+                        }
+                        profiles::validate_profile_id(id)?;
+                        for folder in &meta.folders {
+                            profiles::validate_folder_name(folder)?;
+                        }
+                        let mut documents = vec![format!("profiles/{id}/AGENTS.md")];
+                        documents.extend(meta.folders.iter().map(|folder| {
+                            format!("profiles/{id}/folders/{folder}/AGENTS.md")
+                        }));
+                        for document in documents {
+                            let document_entry = tree
+                                .get_path(std::path::Path::new(&document))
+                                .with_context(|| format!("profile document missing: {document}"))?;
+                            if document_entry.kind() != Some(ObjectType::Blob) {
+                                bail!("profile document is not a blob: {document}");
+                            }
+                            snap.profile_documents.insert(
+                                document,
+                                FileEntry { oid: document_entry.id(), mode: document_entry.filemode() },
+                            );
+                        }
+                        snap.profiles.insert(
+                            id.to_string(),
+                            FileEntry { oid: e.id(), mode: e.filemode() },
+                        );
+                    }
+                }
                 ("schema.json", Some(ObjectType::Blob)) => {
                     let blob = repo.find_blob(entry.id())?;
                     let version = serde_json::from_slice::<serde_json::Value>(blob.content())
@@ -181,9 +229,12 @@ pub fn read_snapshot(repo: &Repository, tree: &Tree) -> Result<Snapshot> {
         }
     }
 
-    // ── residual walk: everything outside claimed content dirs ──
-    let claimed: BTreeSet<String> =
-        snap.skills.values().map(|s| s.meta.path.clone()).collect();
+    let claimed: BTreeSet<String> = snap
+        .skills
+        .values()
+        .map(|skill| skill.meta.path.clone())
+        .chain(snap.profile_documents.keys().cloned())
+        .collect();
     collect_residual(repo, tree, "", &claimed, &mut snap.residual)?;
 
     Ok(snap)

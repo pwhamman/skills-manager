@@ -87,6 +87,14 @@ pub struct ScenarioRecord {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProfileRecord {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ProjectRecord {
     pub id: String,
     pub name: String,
@@ -1379,6 +1387,175 @@ impl SkillStore {
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
         Ok(rows)
+    }
+    // ── Profiles ──
+
+    pub fn get_all_profiles(&self) -> Result<Vec<ProfileRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, created_at, updated_at FROM profiles
+             ORDER BY name COLLATE NOCASE, name",
+        )?;
+        let profiles = stmt
+            .query_map([], |row| {
+                Ok(ProfileRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    created_at: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(profiles)
+    }
+
+    pub fn get_profile(&self, id: &str) -> Result<Option<ProfileRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, created_at, updated_at FROM profiles WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(ProfileRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
+    pub fn insert_profile(&self, profile: &ProfileRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO profiles (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![profile.id, profile.name, profile.created_at, profile.updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_profile_name(&self, id: &str, name: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE profiles SET name = ?1, updated_at = ?2 WHERE id = ?3",
+            params![name, chrono::Utc::now().timestamp_millis(), id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_profile(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM profiles WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_profile_folders(&self, profile_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT folder_name FROM profile_folders WHERE profile_id = ?1
+             ORDER BY folder_name COLLATE NOCASE, folder_name",
+        )?;
+        let folders = stmt
+            .query_map(params![profile_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(folders)
+    }
+
+    pub fn replace_profile_folders(&self, profile_id: &str, folders: &[String]) -> Result<()> {
+        let mut sorted = folders.to_vec();
+        sorted.sort_by_key(|name| name.to_lowercase());
+        sorted.dedup();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM profile_folders WHERE profile_id = ?1", params![profile_id])?;
+        for folder in sorted {
+            tx.execute(
+                "INSERT INTO profile_folders (profile_id, folder_name) VALUES (?1, ?2)",
+                params![profile_id, folder],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn active_profile_id(&self) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT profile_id FROM active_profile WHERE key = 'current'",
+        )?;
+        let mut rows = stmt.query_map([], |row| row.get(0))?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
+    pub fn set_active_profile_id(&self, profile_id: Option<&str>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO active_profile (key, profile_id) VALUES ('current', ?1)
+             ON CONFLICT(key) DO UPDATE SET profile_id = excluded.profile_id",
+            params![profile_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_profile_deployment(&self, target_path: &str) -> Result<Option<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT profile_id, content_hash FROM profile_deployments WHERE target_path = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![target_path], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+        rows.next().transpose().map_err(Into::into)
+    }
+
+    pub fn set_profile_deployment(
+        &self,
+        target_path: &str,
+        profile_id: &str,
+        content_hash: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO profile_deployments (target_path, profile_id, content_hash)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(target_path) DO UPDATE SET
+                profile_id = excluded.profile_id, content_hash = excluded.content_hash",
+            params![target_path, profile_id, content_hash],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_profile_deployment(&self, target_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM profile_deployments WHERE target_path = ?1",
+            params![target_path],
+        )?;
+        Ok(())
+    }
+
+    pub fn replace_profiles_from_metadata(
+        &self,
+        profiles: &[ProfileRecord],
+        folders: &std::collections::HashMap<String, Vec<String>>,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM profiles", [])?;
+        for profile in profiles {
+            tx.execute(
+                "INSERT INTO profiles (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params![profile.id, profile.name, profile.created_at, profile.updated_at],
+            )?;
+            for folder in folders.get(&profile.id).into_iter().flatten() {
+                tx.execute(
+                    "INSERT INTO profile_folders (profile_id, folder_name) VALUES (?1, ?2)",
+                    params![profile.id, folder],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 }
 

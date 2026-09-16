@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 use walkdir::WalkDir;
 
-use super::central_repo;
+use super::{central_repo, profiles};
 use super::repo_lock::RepoLock;
 use super::skill_metadata;
-use super::skill_store::{ScenarioRecord, SkillRecord, SkillStore};
+use super::skill_store::{ProfileRecord, ScenarioRecord, SkillRecord, SkillStore};
 
 const SCHEMA_VERSION: u32 = 1;
 const APP_MIN_VERSION: &str = "2.0.0";
@@ -70,6 +70,7 @@ pub fn metadata_exists() -> bool {
     metadata_dir().join("schema.json").exists()
         || metadata_dir().join("skills").is_dir()
         || metadata_dir().join("scenarios").is_dir()
+        || metadata_dir().join("profiles").is_dir()
 }
 
 pub fn has_complete_skill_snapshot() -> bool {
@@ -100,6 +101,7 @@ pub(crate) fn write_all_from_db_unlocked(store: &SkillStore) -> Result<()> {
     write_schema()?;
     write_skill_records_from_db(store)?;
     write_scenario_records_from_db(store)?;
+    write_profile_records_from_db(store)?;
     remove_stale_metadata_files(store)?;
     Ok(())
 }
@@ -139,6 +141,36 @@ pub(crate) fn reindex_from_metadata_unlocked(store: &SkillStore) -> Result<()> {
     } else {
         Vec::new()
     };
+    let profiles = profiles::read_metadata_files()?;
+    let existing_profiles: HashMap<String, ProfileRecord> = store
+        .get_all_profiles()?
+        .into_iter()
+        .map(|profile| (profile.id.clone(), profile))
+        .collect();
+    let profile_records: Vec<ProfileRecord> = profiles
+        .iter()
+        .map(|metadata| {
+            let previous = existing_profiles.get(&metadata.profile_id);
+            ProfileRecord {
+                id: metadata.profile_id.clone(),
+                name: metadata.name.clone(),
+                created_at: previous.map(|profile| profile.created_at).unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                updated_at: previous.map(|profile| profile.updated_at).unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            }
+        })
+        .collect();
+    let profile_folders = profiles
+        .iter()
+        .map(|metadata| (metadata.profile_id.clone(), metadata.folders.clone()))
+        .collect::<HashMap<_, _>>();
+    for profile_id in existing_profiles.keys() {
+        if !profile_folders.contains_key(profile_id) {
+            let root = profiles::profile_root(profile_id)?;
+            if root.exists() {
+                fs::remove_dir_all(root)?;
+            }
+        }
+    }
     let now = chrono::Utc::now().timestamp_millis();
     let skills_root = central_repo::skills_dir();
 
@@ -221,6 +253,8 @@ pub(crate) fn reindex_from_metadata_unlocked(store: &SkillStore) -> Result<()> {
         store.replace_scenarios_from_metadata(&scenarios)?;
         store.replace_scenario_memberships_from_metadata(&memberships)?;
     }
+    store.replace_profiles_from_metadata(&profile_records, &profile_folders)?;
+    profiles::clear_active_profile_if_missing(store)?;
     Ok(())
 }
 
@@ -270,6 +304,7 @@ fn ensure_metadata_dirs() -> Result<()> {
     fs::create_dir_all(metadata_dir().join("skills"))?;
     fs::create_dir_all(metadata_dir().join("scenarios"))?;
     fs::create_dir_all(metadata_dir().join("scenario-skills"))?;
+    fs::create_dir_all(metadata_dir().join("profiles"))?;
     Ok(())
 }
 
@@ -310,6 +345,13 @@ fn write_scenario_records_from_db(store: &SkillStore) -> Result<()> {
     Ok(())
 }
 
+fn write_profile_records_from_db(store: &SkillStore) -> Result<()> {
+    for profile in store.get_all_profiles()? {
+        profiles::write_metadata(store, &profile)?;
+    }
+    Ok(())
+}
+
 fn remove_stale_metadata_files(store: &SkillStore) -> Result<()> {
     let skill_ids: HashSet<String> = store
         .get_all_skills()?
@@ -324,6 +366,13 @@ fn remove_stale_metadata_files(store: &SkillStore) -> Result<()> {
         .map(|scenario| scenario.id)
         .collect();
     remove_stale_json_files(&metadata_dir().join("scenarios"), &scenario_ids)?;
+
+    let profile_ids: HashSet<String> = store
+        .get_all_profiles()?
+        .into_iter()
+        .map(|profile| profile.id)
+        .collect();
+    remove_stale_json_files(&metadata_dir().join("profiles"), &profile_ids)?;
 
     let membership_root = metadata_dir().join("scenario-skills");
     if membership_root.exists() {
