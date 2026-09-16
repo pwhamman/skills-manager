@@ -1,8 +1,10 @@
+use crate::commands::skills;
 use crate::core::{
     central_repo, error::AppError, git2_engine, git_backup, git_credentials, git_fetcher,
-    github_api, merge, skill_metadata, sync_metadata,
+    github_api, merge, repo_lock::RepoLock, skill_metadata, sync_metadata,
 };
 use anyhow::Context;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -107,6 +109,76 @@ pub async fn git_backup_status(
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || git_backup::get_status(&skills_dir).map_err(AppError::git))
         .await?
+}
+
+#[tauri::command]
+pub async fn git_backup_list_exclusions() -> Result<Vec<git_backup::BackupExclusionSummary>, AppError> {
+    let skills_dir = central_repo::skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        git_backup::list_backup_exclusions(&skills_dir).map_err(AppError::git)
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn git_backup_exclude_skills(
+    skill_ids: Vec<String>,
+    store: State<'_, Arc<SkillStore>>,
+) -> Result<(), AppError> {
+    let store = store.inner().clone();
+    let skills_dir = central_repo::skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lock = RepoLock::acquire_foreground("exclude backup skills").map_err(AppError::git)?;
+        git_backup_exclude_skills_unlocked(&store, &skills_dir, &skill_ids)
+    })
+    .await?
+}
+
+pub(crate) fn git_backup_exclude_skills_unlocked(
+    store: &SkillStore,
+    skills_dir: &Path,
+    skill_ids: &[String],
+) -> Result<(), AppError> {
+    if skill_ids.is_empty() {
+        return Err(AppError::not_found("No skills selected for backup exclusion"));
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut selected = Vec::new();
+    for skill_id in skill_ids {
+        if !seen.insert(skill_id.clone()) {
+            continue;
+        }
+        let skill = store
+            .get_skill_by_id(skill_id)
+            .map_err(AppError::db)?
+            .ok_or_else(|| AppError::not_found(format!("Skill not found: {skill_id}")))?;
+        selected.push(skill);
+    }
+
+    for skill in &selected {
+        git_backup::write_backup_exclusion_unlocked(skills_dir, &skill.id, &skill.name)
+            .map_err(AppError::git)?;
+    }
+    let ids: Vec<String> = selected.into_iter().map(|skill| skill.id).collect();
+    skills::delete_managed_skills_by_ids_unlocked(store, &ids).map_err(AppError::db)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_backup_remove_exclusion(skill_id: String) -> Result<(), AppError> {
+    let skills_dir = central_repo::skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lock = RepoLock::acquire_foreground("remove backup exclusion").map_err(AppError::git)?;
+        if git_backup::delete_backup_exclusion_unlocked(&skills_dir, &skill_id)
+            .map_err(AppError::git)?
+        {
+            Ok(())
+        } else {
+            Err(AppError::not_found("Backup exclusion not found"))
+        }
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -1056,6 +1128,81 @@ mod tests {
             env.store.get_setting("git_backup_remote_url").unwrap().as_deref(),
             Some(token_url)
         );
+    }
+    #[test]
+    fn exclusion_deletes_selected_skill_and_preserves_policy() {
+        let env = test_env();
+        let skill_id = "skill-1".to_string();
+        let central = env.skills_dir.join("alpha");
+        let target = env._tmp.path().join("target-alpha");
+        std::fs::create_dir_all(&central).unwrap();
+        std::fs::write(central.join("SKILL.md"), "alpha").unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        env.store
+            .insert_skill(&crate::core::skill_store::SkillRecord {
+                id: skill_id.clone(),
+                name: "Alpha".to_string(),
+                description: None,
+                source_type: "import".to_string(),
+                source_ref: None,
+                source_ref_resolved: None,
+                source_subpath: None,
+                source_branch: None,
+                source_revision: None,
+                remote_revision: None,
+                central_path: central.to_string_lossy().to_string(),
+                content_hash: None,
+                enabled: true,
+                created_at: 1,
+                updated_at: 1,
+                status: "ok".to_string(),
+                update_status: "unknown".to_string(),
+                last_checked_at: None,
+                last_check_error: None,
+            })
+            .unwrap();
+        env.store
+            .insert_target(&crate::core::skill_store::SkillTargetRecord {
+                id: "target-1".to_string(),
+                skill_id: skill_id.clone(),
+                tool: "test".to_string(),
+                target_path: target.to_string_lossy().to_string(),
+                mode: "copy".to_string(),
+                status: "ok".to_string(),
+                synced_at: None,
+                last_error: None,
+                source_hash: None,
+            })
+            .unwrap();
+        sync_metadata::write_all_from_db_unlocked(&env.store).unwrap();
+
+        let err = git_backup_exclude_skills_unlocked(
+            &env.store,
+            &env.skills_dir,
+            &[skill_id.clone(), "missing".to_string()],
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, crate::core::error::ErrorKind::NotFound);
+        assert!(central.exists());
+
+        git_backup_exclude_skills_unlocked(&env.store, &env.skills_dir, &[skill_id.clone()])
+            .unwrap();
+        assert!(!central.exists());
+        assert!(!target.exists());
+        assert!(env.store.get_skill_by_id(&skill_id).unwrap().is_none());
+        assert!(!env
+            .skills_dir
+            .join(".skills-manager/skills/skill-1.json")
+            .exists());
+        assert_eq!(
+            git_backup::list_backup_exclusions_unlocked(&env.skills_dir).unwrap(),
+            vec![git_backup::BackupExclusionSummary {
+                skill_id: skill_id.clone(),
+                name: "Alpha".to_string(),
+            }]
+        );
+        assert!(git_backup::delete_backup_exclusion_unlocked(&env.skills_dir, &skill_id).unwrap());
+        assert!(env.store.get_skill_by_id(&skill_id).unwrap().is_none());
     }
 }
 

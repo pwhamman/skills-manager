@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.0] - 2026-09-16
+
+### Release Overview
+- Permanently exclude selected skills from the shared backup. Exclusion policies sync across devices; the next backup removes the selected skill content and deployed copies everywhere.
+
+### User-facing
+- Manage exclusions from Backup. Add one or more library skills, review the destructive confirmation, and remove an exclusion policy later without restoring deleted content.
+
+### Developer & Governance
+- Backup exclusions are tracked as independent per-skill metadata records, so concurrent exclusions merge without overwriting each other and stale policies remain removable.
 ## [1.39.0] - 2026-09-15
 
 ### Release Overview

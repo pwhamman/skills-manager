@@ -217,6 +217,70 @@ fn seeded_pair(env: &Env) -> (Device, Device) {
     (a, b)
 }
 
+#[test]
+fn exclusion_deletion_syncs_content_metadata_and_policy() {
+    let env = setup();
+    let (a, b) = seeded_pair(&env);
+
+    a.activate();
+    git_backup::write_backup_exclusion_unlocked(&a.skills, "skill-1", "Alpha").unwrap();
+    a.remove_skill("skill-1", "alpha");
+    a.reindex();
+    sync_metadata::write_all_from_db_unlocked(&a.store).unwrap();
+    a.commit("exclude alpha");
+    a.push();
+
+    let summary = b.pull();
+    assert!(summary.new_conflicts.is_empty(), "{summary:?}");
+    for device in [&a, &b] {
+        assert!(!device.skills.join("alpha").exists());
+        assert!(!device
+            .skills
+            .join(".skills-manager/skills/skill-1.json")
+            .exists());
+        assert!(device
+            .skills
+            .join(".skills-manager/backup-exclusions/skill-1.json")
+            .exists());
+        assert!(device.store.get_skill_by_id("skill-1").unwrap().is_none());
+    }
+}
+
+#[test]
+fn concurrent_distinct_exclusions_converge() {
+    let env = setup();
+    let (a, b) = seeded_pair(&env);
+    a.activate();
+    a.write_skill("skill-2", "beta", "beta content");
+    a.commit("add beta");
+    a.push();
+    b.pull();
+
+    a.activate();
+    git_backup::write_backup_exclusion_unlocked(&a.skills, "skill-1", "Alpha").unwrap();
+    a.commit("exclude alpha");
+
+    b.activate();
+    git_backup::write_backup_exclusion_unlocked(&b.skills, "skill-2", "Beta").unwrap();
+    b.commit("exclude beta");
+    b.push();
+
+    a.pull();
+    a.push();
+    b.pull();
+    for device in [&a, &b] {
+        assert!(device
+            .skills
+            .join(".skills-manager/backup-exclusions/skill-1.json")
+            .exists());
+        assert!(device
+            .skills
+            .join(".skills-manager/backup-exclusions/skill-2.json")
+            .exists());
+    }
+    assert_eq!(a.tree_oid(), b.tree_oid());
+}
+
 // ── compose + convergence (§2.1 / §10 收敛性) ──
 
 #[test]

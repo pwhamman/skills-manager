@@ -65,6 +65,7 @@ pub struct MergePlan {
     pub memberships: BTreeMap<(String, String), FileEntry>,
     pub profiles: BTreeMap<String, FileEntry>,
     pub profile_documents: BTreeMap<String, FileEntry>,
+    pub backup_exclusions: BTreeMap<String, FileEntry>,
     pub residual: BTreeMap<String, FileEntry>,
     /// skill ids adopted or partially adopted from theirs, for the summary.
     pub updated_from_theirs: Vec<String>,
@@ -187,7 +188,7 @@ pub fn decide(input: &DecisionInput) -> Result<MergePlan> {
         }
     }
 
-    // ── whole-file objects (§3): scenarios / memberships / residual ──
+    // ── whole-file objects (§3): scenarios / memberships / exclusions / residual ──
     plan.scenarios = merge_whole_files(
         &input.base.scenarios,
         &input.ours.scenarios,
@@ -214,6 +215,13 @@ pub fn decide(input: &DecisionInput) -> Result<MergePlan> {
         &input.ours.profiles,
         &input.theirs.profiles,
         |id| format!("{}/profiles/{}.json", super::snapshot::METADATA_DIR, id),
+        input,
+    );
+    plan.backup_exclusions = merge_whole_files(
+        &input.base.backup_exclusions,
+        &input.ours.backup_exclusions,
+        &input.theirs.backup_exclusions,
+        |id| format!("{}/backup-exclusions/{}.json", super::snapshot::METADATA_DIR, id),
         input,
     );
     plan.profile_documents = merge_whole_files(
@@ -500,8 +508,8 @@ fn resolve_path_collisions(plan: &mut MergePlan, input: &DecisionInput) -> Resul
 
 /// Residual files inside the managed metadata subdirectories that the app
 /// never writes: anything non-`.json` under skills, scenarios,
-/// scenario-skills, or profiles, plus atomic-write temp leftovers anywhere
-/// under `.skills-manager/`.
+/// scenario-skills, profiles, or backup-exclusions, plus atomic-write temp
+/// leftovers anywhere under `.skills-manager/`.
 pub(crate) fn is_metadata_namespace_junk(path: &str) -> bool {
     let Some(rest) = path.strip_prefix(".skills-manager/") else {
         return false;
@@ -512,7 +520,8 @@ pub(crate) fn is_metadata_namespace_junk(path: &str) -> bool {
     (rest.starts_with("skills/")
         || rest.starts_with("scenarios/")
         || rest.starts_with("scenario-skills/")
-        || rest.starts_with("profiles/"))
+        || rest.starts_with("profiles/")
+        || rest.starts_with("backup-exclusions/"))
         && !rest.ends_with(".json")
 }
 

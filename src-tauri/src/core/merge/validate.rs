@@ -9,7 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::protocol::ProtocolFile;
 use super::snapshot::{MAX_SKILL_DEPTH, METADATA_DIR, tree_is_valid_skill_dir};
-use crate::core::{profiles::{self, ProfileMetaFile}, sync_metadata::{SkillMetaFile, path_key}};
+use crate::core::{
+    git_backup::BackupExclusion,
+    profiles::{self, ProfileMetaFile},
+    sync_metadata::{SkillMetaFile, path_key},
+};
 
 /// Skill directories in `tree` that no metadata claims. Used to grandfather
 /// legacy dirt: dirs that were already unclaimed in a merge INPUT (committed
@@ -224,7 +228,35 @@ fn validate_tree(
         }
     }
 
-    // 6. profile metadata has fixed IDs and every declared document is a blob.
+    // 6. backup exclusions have one valid JSON record per skill ID. The skill
+    // may no longer exist: stale records remain removable policy artifacts.
+    if let Ok(exclusions_tree) = subtree(repo, &meta_tree, "backup-exclusions") {
+        for entry in exclusions_tree.iter() {
+            let name = entry.name().unwrap_or_default().to_string();
+            let Some(skill_id) = name.strip_suffix(".json") else {
+                if tolerate_metadata_junk
+                    && super::decision::is_metadata_namespace_junk(&format!(
+                        "{METADATA_DIR}/backup-exclusions/{name}"
+                    ))
+                {
+                    continue;
+                }
+                bail!("merged tree validation: unexpected backup exclusion {name}");
+            };
+            let raw = repo
+                .find_blob(entry.id())
+                .with_context(|| format!("backup-exclusions/{name} is not a blob"))?
+                .content()
+                .to_vec();
+            let exclusion: BackupExclusion = serde_json::from_slice(&raw)
+                .with_context(|| format!("merged tree validation: backup-exclusions/{name} unparsable"))?;
+            if exclusion.skill_id != skill_id {
+                bail!("merged tree validation: backup-exclusions/{name} skill_id mismatch");
+            }
+        }
+    }
+
+    // 7. profile metadata has fixed IDs and every declared document is a blob.
     if let Ok(profiles_tree) = subtree(repo, &meta_tree, "profiles") {
         for entry in profiles_tree.iter() {
             let name = entry.name().unwrap_or_default().to_string();

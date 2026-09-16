@@ -574,6 +574,11 @@ export interface GitBackupVersion {
   author: string;
 }
 
+export interface BackupExclusion {
+  skill_id: string;
+  name: string;
+}
+
 export interface GitBackupSizeReport {
   total_bytes: number;
   /** `excluded`: oversized and kept out of the backup (§3.6); false = already tracked, warning only. */
@@ -584,6 +589,15 @@ export interface GitBackupSizeReport {
 
 export const gitBackupStatus = () =>
   invoke<GitBackupStatus>("git_backup_status");
+
+export const gitBackupListExclusions = () =>
+  invoke<BackupExclusion[]>("git_backup_list_exclusions");
+
+export const gitBackupExcludeSkills = (skillIds: string[]) =>
+  invoke<void>("git_backup_exclude_skills", { skillIds });
+
+export const gitBackupRemoveExclusion = (skillId: string) =>
+  invoke<void>("git_backup_remove_exclusion", { skillId });
 
 export const gitBackupFetch = () => invoke<void>("git_backup_fetch");
 

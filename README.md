@@ -139,7 +139,7 @@ The **Backup** page (sidebar) keeps your skill library versioned in a Git reposi
 
 ### What's included
 
-Skills, tags, presets, and per-agent skill toggles are backed up. Secrets (API keys, tokens, proxy settings) and machine-specific wiring never leave the machine. Skills over 100 MB stay local and are excluded from backup automatically (labeled on the Backup page). The SQLite database is not in Git — it stores metadata that is rebuilt from the skill files.
+Skills, tags, presets, and per-agent skill toggles are backed up. User-selected exclusion policies are synced, while their excluded skill content is removed from the shared backup and connected devices. Secrets (API keys, tokens, proxy settings) and machine-specific wiring never leave the machine. Skills over 100 MB stay local and are excluded from backup automatically (labeled on the Backup page). The SQLite database is not in Git — it stores metadata that is rebuilt from the skill files.
 
 ### Disconnecting
 
