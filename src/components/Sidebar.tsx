@@ -73,6 +73,7 @@ export function Sidebar() {
   const [orderedLobsterTools, setOrderedLobsterTools] = useState(installedLobsterTools);
   const presetReorderQueueRef = useRef<Promise<void>>(Promise.resolve());
   const projectReorderQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [pluginsOpen, setPluginsOpen] = useState(true);
   const [presetsOpen, setPresetsOpen] = useState(true);
   const [profilesOpen, setProfilesOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -498,11 +499,34 @@ export function Sidebar() {
           )}
 
           {/* ── Plugins ── */}
-          <div className="mb-1.5 px-2.5">
+          <div className="mb-1.5 px-2.5 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPluginsOpen((open) => !open)}
+              aria-label={t("sidebar.plugins")}
+              className="rounded p-0.5 text-faint outline-none hover:text-muted focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {pluginsOpen
+                ? <ChevronDown className="h-3 w-3 shrink-0" />
+                : <ChevronRight className="h-3 w-3 shrink-0" />}
+            </button>
             <Link
               to="/plugins"
               className={cn(
-                "flex items-center gap-2 rounded-md px-2.5 py-[7px] text-sm transition-colors outline-none",
+                "flex min-w-0 flex-1 items-center gap-2 text-[12px] font-semibold tracking-[0.01em] whitespace-nowrap outline-none",
+                location.pathname === "/plugins" ? "text-primary" : "text-muted hover:text-secondary"
+              )}
+            >
+              <span className="truncate">{t("sidebar.plugins")}</span>
+              {plugins.length > 0 && <span className="rounded-full bg-surface-hover px-1.5 text-[12px] font-medium leading-[18px] tabular-nums text-muted">{plugins.length}</span>}
+            </Link>
+          </div>
+          {pluginsOpen && plugins.map((plugin) => (
+            <Link
+              key={plugin.id}
+              to="/plugins"
+              className={cn(
+                "mx-2.5 mb-0.5 flex items-center gap-2 rounded-md px-2.5 py-[7px] text-sm transition-colors outline-none",
                 location.pathname === "/plugins"
                   ? "bg-surface-active font-medium text-primary"
                   : "text-tertiary hover:bg-surface-hover hover:text-secondary"
@@ -514,20 +538,10 @@ export function Sidebar() {
               )}>
                 <Package className="h-3 w-3" />
               </span>
-              <span className="flex-1 truncate">{t("sidebar.plugins")}</span>
-              {plugins.length > 0 && <span className="rounded-full bg-surface-hover px-1.5 text-[12px] leading-[18px] tabular-nums text-muted">{plugins.length}</span>}
+              <span className="flex-1 truncate">{plugin.display_name}</span>
+              <span className="text-[12px] font-medium tabular-nums text-muted">{plugin.skill_ids.length}</span>
             </Link>
-            {plugins.slice(0, 4).map((plugin) => (
-              <Link
-                key={plugin.id}
-                to="/plugins"
-                className="ml-7 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[12px] text-muted hover:bg-surface-hover hover:text-secondary"
-              >
-                <span className="truncate">{plugin.display_name}</span>
-                <span className="shrink-0 tabular-nums text-faint">{plugin.skill_ids.length}</span>
-              </Link>
-            ))}
-          </div>
+          ))}
           <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
 
           {/* ── Presets ── */}
