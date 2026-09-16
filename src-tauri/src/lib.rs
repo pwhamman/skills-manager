@@ -1118,6 +1118,15 @@ pub fn run() {
             commands::skills::delete_tag,
             commands::skills::cancel_install,
             commands::skills::batch_import_folder,
+            // Plugins
+            commands::plugins::get_plugins,
+            commands::plugins::preview_plugin_install,
+            commands::plugins::confirm_plugin_install,
+            commands::plugins::cancel_plugin_preview,
+            commands::plugins::create_manual_plugin,
+            commands::plugins::update_manual_plugin,
+            commands::plugins::activate_plugin,
+            commands::plugins::deactivate_plugin,
             // Sync
             commands::sync::sync_skill_to_tool,
             commands::sync::unsync_skill_from_tool,

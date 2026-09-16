@@ -15,6 +15,7 @@ import { Settings } from "./views/Settings";
 import { ProjectDetail } from "./views/ProjectDetail";
 import { Backup } from "./views/Backup";
 import { Profiles } from "./views/Profiles";
+import { Plugins } from "./views/Plugins";
 
 const IS_MACOS = navigator.userAgent.includes("Mac");
 
@@ -49,6 +50,7 @@ function App() {
               <Route path="/lobster-workspace" element={<WorkspaceView config={LOBSTER_WORKSPACE_CONFIG} />} />
               <Route path="/lobster-workspace/:agentKey" element={<WorkspaceView config={LOBSTER_WORKSPACE_CONFIG} />} />
               <Route path="/install" element={<InstallSkills />} />
+              <Route path="/plugins" element={<Plugins />} />
               <Route path="/backup" element={<Backup />} />
               <Route path="/project/:id" element={<ProjectDetail />} />
               {IS_MACOS && <Route path="/profiles" element={<Profiles />} />}

@@ -17,6 +17,7 @@ import {
   Link2,
   ChevronDown,
   ChevronRight,
+  Package,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -50,7 +51,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, refreshProfiles, appUpdate } = useApp();
+  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, refreshProfiles, plugins, appUpdate } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateProfile, setShowCreateProfile] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
@@ -495,6 +496,39 @@ export function Sidebar() {
               <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
             </>
           )}
+
+          {/* ── Plugins ── */}
+          <div className="mb-1.5 px-2.5">
+            <Link
+              to="/plugins"
+              className={cn(
+                "flex items-center gap-2 rounded-md px-2.5 py-[7px] text-sm transition-colors outline-none",
+                location.pathname === "/plugins"
+                  ? "bg-surface-active font-medium text-primary"
+                  : "text-tertiary hover:bg-surface-hover hover:text-secondary"
+              )}
+            >
+              <span className={cn(
+                "flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border",
+                location.pathname === "/plugins" ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"
+              )}>
+                <Package className="h-3 w-3" />
+              </span>
+              <span className="flex-1 truncate">{t("sidebar.plugins")}</span>
+              {plugins.length > 0 && <span className="rounded-full bg-surface-hover px-1.5 text-[12px] leading-[18px] tabular-nums text-muted">{plugins.length}</span>}
+            </Link>
+            {plugins.slice(0, 4).map((plugin) => (
+              <Link
+                key={plugin.id}
+                to="/plugins"
+                className="ml-7 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[12px] text-muted hover:bg-surface-hover hover:text-secondary"
+              >
+                <span className="truncate">{plugin.display_name}</span>
+                <span className="shrink-0 tabular-nums text-faint">{plugin.skill_ids.length}</span>
+              </Link>
+            ))}
+          </div>
+          <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
 
           {/* ── Presets ── */}
           <div className="mb-1.5 px-2.5 flex items-center gap-1">

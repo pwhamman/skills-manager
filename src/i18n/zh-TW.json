@@ -10,6 +10,7 @@
     "installSkills": "安裝 Skills",
     "backup": "備份",
     "presets": "Preset",
+    "plugins": "外掛",
     "newPreset": "新增 Preset",
     "projects": "專案工作區",
     "addProject": "關聯專案",
@@ -1053,5 +1054,30 @@
       "deletedLocalBatch": "已刪除 {{count}} 個本機 Skill",
       "deleteLocalBatchFailed": "{{count}} 個本機 Skill 刪除失敗"
     }
+  },
+  "plugins": {
+    "eyebrow": "技能套件",
+    "title": "外掛",
+    "description": "從 Cursor 外掛套件匯入，或從技能庫組合可重複使用的本機套件。",
+    "new": "新增外掛",
+    "import": "預覽匯入",
+    "importLabel": "Cursor 外掛倉庫 URL",
+    "confirmImport": "匯入外掛",
+    "imported": "外掛已匯入",
+    "created": "外掛已建立",
+    "importSkills_one": "1 個宣告的技能",
+    "importSkills_other": "{{count}} 個宣告的技能",
+    "ignoredComponents": "Agents 和 rules 不會作為技能安裝。",
+    "noDescription": "沒有描述",
+    "namePlaceholder": "外掛名稱",
+    "descriptionPlaceholder": "描述（選填）",
+    "members_one": "1 個技能",
+    "members_other": "{{count}} 個技能",
+    "dependencies_one": "1 個依賴",
+    "dependencies_other": "{{count}} 個依賴",
+    "active": "已啟用",
+    "activate": "啟用",
+    "deactivate": "停用",
+    "empty": "尚無外掛套件。"
   }
 }
