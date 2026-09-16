@@ -121,19 +121,24 @@ export function Profiles() {
               <Plus className="h-4 w-4" />
             </button>
           </div>
-          <div className="mt-3 space-y-1">
-            {profiles.map((profile) => (
-              <button
-                key={profile.id}
-                type="button"
-                onClick={() => { setSelectedId(profile.id); setSelectedFolder(null); }}
-                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${selected?.id === profile.id ? "bg-surface-active text-secondary" : "text-muted hover:bg-surface-hover hover:text-secondary"}`}
-              >
-                <FileText className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{profile.name}</span>
-                {profile.active && <Check className="h-4 w-4 text-accent" aria-label={t("profiles.active")} />}
-              </button>
-            ))}
+          <div className="mt-3 space-y-0.5">
+            {profiles.map((profile) => {
+              const isSelected = selected?.id === profile.id;
+              return (
+                <button
+                  key={profile.id}
+                  type="button"
+                  onClick={() => { setSelectedId(profile.id); setSelectedFolder(null); }}
+                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-left text-sm leading-5 transition-colors ${isSelected ? "bg-surface-active font-medium text-primary" : "text-tertiary hover:bg-surface-hover hover:text-secondary"}`}
+                >
+                  <span className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border ${isSelected ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"}`}>
+                    <FileText className="h-3 w-3" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+                  {profile.active && <Check className="h-4 w-4 shrink-0 text-accent" aria-label={t("profiles.active")} />}
+                </button>
+              );
+            })}
             {profiles.length === 0 && <p className="px-2.5 py-4 text-[13px] text-muted">{t("profiles.noProfiles")}</p>}
           </div>
         </aside>
