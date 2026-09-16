@@ -745,47 +745,54 @@ pub fn delete_managed_skills_by_ids(
     skill_ids: &[String],
 ) -> Result<BatchDeleteSkillsResult, AppError> {
     sync_metadata::with_repo_lock("delete skills", || {
-        let mut deleted = 0;
-        let mut failed = Vec::new();
-
-        for skill_id in skill_ids {
-            let Some(skill) = store.get_skill_by_id(skill_id)? else {
-                store.log_audit(
-                    AuditDraft::new("remove")
-                        .skill(skill_id.clone(), "")
-                        .fail("not found"),
-                );
-                failed.push(skill_id.clone());
-                continue;
-            };
-
-            let targets = store.get_targets_for_skill(skill_id)?;
-            for target in &targets {
-                let target_path = PathBuf::from(&target.target_path);
-                sync_engine::remove_target(&target_path).ok();
-            }
-
-            let central = PathBuf::from(&skill.central_path);
-            if central.exists() {
-                std::fs::remove_dir_all(&central).ok();
-            }
-
-            store.delete_skill(skill_id)?;
-            store.log_audit(
-                AuditDraft::new("remove")
-                    .skill(skill_id.clone(), skill.name.clone())
-                    .ok(),
-            );
-            deleted += 1;
-        }
-
-        if deleted > 0 {
-            sync_metadata::write_all_from_db_unlocked(store)?;
-        }
-
-        Ok(BatchDeleteSkillsResult { deleted, failed })
+        delete_managed_skills_by_ids_unlocked(store, skill_ids)
     })
     .map_err(AppError::db)
+}
+
+pub(crate) fn delete_managed_skills_by_ids_unlocked(
+    store: &SkillStore,
+    skill_ids: &[String],
+) -> anyhow::Result<BatchDeleteSkillsResult> {
+    let mut deleted = 0;
+    let mut failed = Vec::new();
+
+    for skill_id in skill_ids {
+        let Some(skill) = store.get_skill_by_id(skill_id)? else {
+            store.log_audit(
+                AuditDraft::new("remove")
+                    .skill(skill_id.clone(), "")
+                    .fail("not found"),
+            );
+            failed.push(skill_id.clone());
+            continue;
+        };
+
+        let targets = store.get_targets_for_skill(skill_id)?;
+        for target in &targets {
+            let target_path = PathBuf::from(&target.target_path);
+            sync_engine::remove_target(&target_path).ok();
+        }
+
+        let central = PathBuf::from(&skill.central_path);
+        if central.exists() {
+            std::fs::remove_dir_all(&central).ok();
+        }
+
+        store.delete_skill(skill_id)?;
+        store.log_audit(
+            AuditDraft::new("remove")
+                .skill(skill_id.clone(), skill.name.clone())
+                .ok(),
+        );
+        deleted += 1;
+    }
+
+    if deleted > 0 {
+        sync_metadata::write_all_from_db_unlocked(store)?;
+    }
+
+    Ok(BatchDeleteSkillsResult { deleted, failed })
 }
 
 /// Append an audit log entry summarising an install attempt.

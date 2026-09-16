@@ -1,7 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::io::ErrorKind;
 
 use super::git2_engine;
 use super::git_credentials;
@@ -64,6 +66,114 @@ pub struct GitBackupVersion {
     /// Commit author name — the device name of the machine that made this
     /// backup (§4.3). Empty for commits from before device naming existed.
     pub author: String,
+}
+
+pub const BACKUP_EXCLUSIONS_DIR: &str = ".skills-manager/backup-exclusions";
+const BACKUP_EXCLUSION_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BackupExclusion {
+    pub schema_version: u32,
+    pub skill_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BackupExclusionSummary {
+    pub skill_id: String,
+    pub name: String,
+}
+
+fn backup_exclusions_dir(skills_dir: &Path) -> PathBuf {
+    skills_dir.join(BACKUP_EXCLUSIONS_DIR)
+}
+
+pub fn list_backup_exclusions(skills_dir: &Path) -> Result<Vec<BackupExclusionSummary>> {
+    with_repo_lock("list backup exclusions", || list_backup_exclusions_unlocked(skills_dir))
+}
+
+pub(crate) fn list_backup_exclusions_unlocked(
+    skills_dir: &Path,
+) -> Result<Vec<BackupExclusionSummary>> {
+    let dir = backup_exclusions_dir(skills_dir);
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut exclusions = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("read backup exclusions from {}", dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if !entry.file_type()?.is_file() || path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let skill_id = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .with_context(|| format!("backup exclusion has an invalid filename: {}", path.display()))?;
+        let raw = fs::read_to_string(&path)
+            .with_context(|| format!("read backup exclusion {}", path.display()))?;
+        let exclusion: BackupExclusion = serde_json::from_str(&raw)
+            .with_context(|| format!("invalid backup exclusion {}", path.display()))?;
+        if exclusion.skill_id != skill_id {
+            bail!(
+                "backup exclusion {}: skill_id {} does not match file name",
+                path.display(),
+                exclusion.skill_id
+            );
+        }
+        exclusions.push(BackupExclusionSummary {
+            skill_id: exclusion.skill_id,
+            name: exclusion.name,
+        });
+    }
+
+    exclusions.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.skill_id.cmp(&b.skill_id))
+    });
+    Ok(exclusions)
+}
+
+pub fn write_backup_exclusion(skills_dir: &Path, skill_id: &str, name: &str) -> Result<()> {
+    with_repo_lock("write backup exclusion", || {
+        write_backup_exclusion_unlocked(skills_dir, skill_id, name)
+    })
+}
+
+pub(crate) fn write_backup_exclusion_unlocked(
+    skills_dir: &Path,
+    skill_id: &str,
+    name: &str,
+) -> Result<()> {
+    let exclusion = BackupExclusion {
+        schema_version: BACKUP_EXCLUSION_SCHEMA_VERSION,
+        skill_id: skill_id.to_string(),
+        name: name.to_string(),
+    };
+    super::sync_metadata::atomic_write_json(
+        &backup_exclusions_dir(skills_dir).join(format!("{skill_id}.json")),
+        &exclusion,
+    )
+}
+
+pub fn delete_backup_exclusion(skills_dir: &Path, skill_id: &str) -> Result<bool> {
+    with_repo_lock("remove backup exclusion", || {
+        delete_backup_exclusion_unlocked(skills_dir, skill_id)
+    })
+}
+
+pub(crate) fn delete_backup_exclusion_unlocked(skills_dir: &Path, skill_id: &str) -> Result<bool> {
+    let path = backup_exclusions_dir(skills_dir).join(format!("{skill_id}.json"));
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("remove backup exclusion {}", path.display())),
+    }
 }
 
 /// Default device name derived from the machine's hostname (macOS appends

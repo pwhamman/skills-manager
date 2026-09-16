@@ -646,6 +646,12 @@ fn plan_to_edits(
     );
     diff_file_maps(
         &mut edits,
+        &ours.backup_exclusions,
+        &plan.backup_exclusions,
+        |id| format!("{METADATA_DIR}/backup-exclusions/{id}.json"),
+    );
+    diff_file_maps(
+        &mut edits,
         &ours.profile_documents,
         &plan.profile_documents,
         |path| path.clone(),

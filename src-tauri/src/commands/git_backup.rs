@@ -1,8 +1,10 @@
+use crate::commands::skills;
 use crate::core::{
     central_repo, error::AppError, git2_engine, git_backup, git_credentials, git_fetcher,
-    github_api, merge, skill_metadata, sync_metadata,
+    github_api, merge, repo_lock::RepoLock, skill_metadata, sync_metadata,
 };
 use anyhow::Context;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -107,6 +109,76 @@ pub async fn git_backup_status(
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || git_backup::get_status(&skills_dir).map_err(AppError::git))
         .await?
+}
+
+#[tauri::command]
+pub async fn git_backup_list_exclusions() -> Result<Vec<git_backup::BackupExclusionSummary>, AppError> {
+    let skills_dir = central_repo::skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        git_backup::list_backup_exclusions(&skills_dir).map_err(AppError::git)
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn git_backup_exclude_skills(
+    skill_ids: Vec<String>,
+    store: State<'_, Arc<SkillStore>>,
+) -> Result<(), AppError> {
+    let store = store.inner().clone();
+    let skills_dir = central_repo::skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lock = RepoLock::acquire_foreground("exclude backup skills").map_err(AppError::git)?;
+        git_backup_exclude_skills_unlocked(&store, &skills_dir, &skill_ids)
+    })
+    .await?
+}
+
+pub(crate) fn git_backup_exclude_skills_unlocked(
+    store: &SkillStore,
+    skills_dir: &Path,
+    skill_ids: &[String],
+) -> Result<(), AppError> {
+    if skill_ids.is_empty() {
+        return Err(AppError::not_found("No skills selected for backup exclusion"));
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut selected = Vec::new();
+    for skill_id in skill_ids {
+        if !seen.insert(skill_id.clone()) {
+            continue;
+        }
+        let skill = store
+            .get_skill_by_id(skill_id)
+            .map_err(AppError::db)?
+            .ok_or_else(|| AppError::not_found(format!("Skill not found: {skill_id}")))?;
+        selected.push(skill);
+    }
+
+    for skill in &selected {
+        git_backup::write_backup_exclusion_unlocked(skills_dir, &skill.id, &skill.name)
+            .map_err(AppError::git)?;
+    }
+    let ids: Vec<String> = selected.into_iter().map(|skill| skill.id).collect();
+    skills::delete_managed_skills_by_ids_unlocked(store, &ids).map_err(AppError::db)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_backup_remove_exclusion(skill_id: String) -> Result<(), AppError> {
+    let skills_dir = central_repo::skills_dir();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lock = RepoLock::acquire_foreground("remove backup exclusion").map_err(AppError::git)?;
+        if git_backup::delete_backup_exclusion_unlocked(&skills_dir, &skill_id)
+            .map_err(AppError::git)?
+        {
+            Ok(())
+        } else {
+            Err(AppError::not_found("Backup exclusion not found"))
+        }
+    })
+    .await?
 }
 
 #[tauri::command]

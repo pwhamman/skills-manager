@@ -7,7 +7,11 @@ use git2::{ObjectType, Oid, Repository, Tree};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::protocol::ProtocolFile;
-use crate::core::{profiles::{self, ProfileMetaFile}, sync_metadata::SkillMetaFile};
+use crate::core::{
+    git_backup::BackupExclusion,
+    profiles::{self, ProfileMetaFile},
+    sync_metadata::SkillMetaFile,
+};
 
 pub const METADATA_DIR: &str = ".skills-manager";
 /// Marker files that make a directory a valid skill dir (mirrors
@@ -55,6 +59,8 @@ pub struct Snapshot {
     pub profiles: BTreeMap<String, FileEntry>,
     /// Portable canonical and home-folder profile documents, keyed by full repo path.
     pub profile_documents: BTreeMap<String, FileEntry>,
+    /// skill_id → .skills-manager/backup-exclusions/{id}.json blob.
+    pub backup_exclusions: BTreeMap<String, FileEntry>,
     /// Repo-relative path → blob, for every file outside claimed content
     /// dirs and outside the known metadata files (`.gitignore`, stray user
     /// files, unknown future `.skills-manager` entries).
@@ -198,6 +204,41 @@ pub fn read_snapshot(repo: &Repository, tree: &Tree) -> Result<Snapshot> {
                         }
                         snap.profiles.insert(
                             id.to_string(),
+                            FileEntry { oid: e.id(), mode: e.filemode() },
+                        );
+                    }
+                }
+                ("backup-exclusions", Some(ObjectType::Tree)) => {
+                    let t = repo.find_tree(entry.id())?;
+                    for e in t.iter() {
+                        let file = e.name().unwrap_or_default().to_string();
+                        let Some(skill_id) = file.strip_suffix(".json") else {
+                            record_residual(
+                                &mut snap,
+                                format!("{METADATA_DIR}/backup-exclusions/{file}"),
+                                &e,
+                            );
+                            continue;
+                        };
+                        if e.kind() != Some(ObjectType::Blob) {
+                            record_residual(
+                                &mut snap,
+                                format!("{METADATA_DIR}/backup-exclusions/{file}"),
+                                &e,
+                            );
+                            continue;
+                        }
+                        let blob = repo.find_blob(e.id())?;
+                        let exclusion: BackupExclusion = serde_json::from_slice(blob.content())
+                            .with_context(|| format!("invalid backup exclusion {file}"))?;
+                        if exclusion.skill_id != skill_id {
+                            bail!(
+                                "backup exclusion {file}: skill_id {} does not match file name",
+                                exclusion.skill_id
+                            );
+                        }
+                        snap.backup_exclusions.insert(
+                            skill_id.to_string(),
                             FileEntry { oid: e.id(), mode: e.filemode() },
                         );
                     }
