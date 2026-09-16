@@ -13,6 +13,7 @@
     "newPreset": "New Preset",
     "projects": "Project Workspaces",
     "addProject": "Link Project",
+    "profiles": "Profiles",
     "settings": "Settings"
   },
   "help": {
@@ -861,6 +862,29 @@
     "deleted": "Preset deleted",
     "created": "Preset created",
     "switched": "Switched to \"{{name}}\""
+  },
+  "profiles": {
+    "title": "Profiles",
+    "description": "Manage the AGENTS.md documents deployed to your coding agents and immediate home folders.",
+    "new": "New Profile",
+    "create": "Create New Profile",
+    "name": "Profile Name",
+    "namePlaceholder": "Profile name",
+    "activate": "Activate",
+    "active": "Active",
+    "save": "Save",
+    "saved": "Profile document saved",
+    "canonical": "Global AGENTS.md",
+    "folders": "Home folders",
+    "folderHint": "Only immediate folders below your home directory can be enrolled.",
+    "addFolder": "Add folder",
+    "removeFolder": "Remove",
+    "noProfiles": "Create a profile to manage agent instructions.",
+    "deleteConfirm": "Delete profile \"{{name}}\"? Its managed documents will be removed from the central repository.",
+    "created": "Profile created",
+    "deleted": "Profile deleted",
+    "renamed": "Profile renamed",
+    "activated": "Profile activated"
   },
   "project": {
     "title": "Project Skills",

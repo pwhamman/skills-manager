@@ -63,6 +63,8 @@ pub struct MergePlan {
     pub still_pending: Vec<String>,
     pub scenarios: BTreeMap<String, FileEntry>,
     pub memberships: BTreeMap<(String, String), FileEntry>,
+    pub profiles: BTreeMap<String, FileEntry>,
+    pub profile_documents: BTreeMap<String, FileEntry>,
     pub residual: BTreeMap<String, FileEntry>,
     /// skill ids adopted or partially adopted from theirs, for the summary.
     pub updated_from_theirs: Vec<String>,
@@ -207,6 +209,20 @@ pub fn decide(input: &DecisionInput) -> Result<MergePlan> {
         },
         input,
     );
+    plan.profiles = merge_whole_files(
+        &input.base.profiles,
+        &input.ours.profiles,
+        &input.theirs.profiles,
+        |id| format!("{}/profiles/{}.json", super::snapshot::METADATA_DIR, id),
+        input,
+    );
+    plan.profile_documents = merge_whole_files(
+        &input.base.profile_documents,
+        &input.ours.profile_documents,
+        &input.theirs.profile_documents,
+        |path| path.clone(),
+        input,
+    );
     plan.residual = merge_whole_files(
         &input.base.residual,
         &input.ours.residual,
@@ -221,12 +237,31 @@ pub fn decide(input: &DecisionInput) -> Result<MergePlan> {
         plan.scenarios.contains_key(sid) && plan.skills.contains_key(skid)
     });
 
-    // ── metadata-namespace junk drop (构树输入自愈): legacy trees carry
-    // atomic-write leftovers (`x.json.tmp.<uuid>`) and OS noise inside the
-    // metadata subdirectories — an old client committed them before disk
-    // cleanup ran. The app only ever writes `.json` files there, so any
-    // other residual is junk; merging it forward would trip the strict
-    // validator on every device forever.
+    // Profile documents exist only when the metadata version that survived
+    // lists them. The selected metadata blob identifies the source snapshot;
+    // its claimed document set is authoritative for folder enrollment.
+    let mut allowed_profile_documents = BTreeSet::new();
+    for (id, winner) in &plan.profiles {
+        let prefix = format!("profiles/{id}/");
+        for snapshot in [input.base, input.ours, input.theirs] {
+            if snapshot.profiles.get(id) == Some(winner) {
+                allowed_profile_documents.extend(
+                    snapshot
+                        .profile_documents
+                        .keys()
+                        .filter(|path| path.starts_with(&prefix))
+                        .cloned(),
+                );
+            }
+        }
+    }
+    plan.profile_documents
+        .retain(|path, _| allowed_profile_documents.contains(path));
+
+    // ── managed-file cleanup: profile sources have one fixed layout and
+    // membership; anything under profiles/ not claimed by profile metadata is
+    // discarded. Metadata temp/non-JSON files are discarded as well.
+    plan.residual.retain(|path, _| !path.starts_with("profiles/"));
     plan.residual.retain(|path, _| !is_metadata_namespace_junk(path));
 
     resolve_path_collisions(&mut plan, input)?;
@@ -464,8 +499,9 @@ fn resolve_path_collisions(plan: &mut MergePlan, input: &DecisionInput) -> Resul
 }
 
 /// Residual files inside the managed metadata subdirectories that the app
-/// never writes: anything non-`.json` under skills/scenarios/scenario-skills,
-/// plus atomic-write temp leftovers anywhere under `.skills-manager/`.
+/// never writes: anything non-`.json` under skills, scenarios,
+/// scenario-skills, or profiles, plus atomic-write temp leftovers anywhere
+/// under `.skills-manager/`.
 pub(crate) fn is_metadata_namespace_junk(path: &str) -> bool {
     let Some(rest) = path.strip_prefix(".skills-manager/") else {
         return false;
@@ -475,7 +511,8 @@ pub(crate) fn is_metadata_namespace_junk(path: &str) -> bool {
     }
     (rest.starts_with("skills/")
         || rest.starts_with("scenarios/")
-        || rest.starts_with("scenario-skills/"))
+        || rest.starts_with("scenario-skills/")
+        || rest.starts_with("profiles/"))
         && !rest.ends_with(".json")
 }
 

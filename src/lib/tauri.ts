@@ -109,6 +109,15 @@ export interface Preset {
   updated_at: number;
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+  folders: string[];
+  active: boolean;
+}
+
 export interface DiscoveredGroup {
   name: string;
   fingerprint: string | null;
@@ -771,6 +780,43 @@ export const getPresetSkillOrder = (presetId: string) =>
 
 export const reorderPresetSkills = (presetId: string, skillIds: string[]) =>
   invoke<void>("reorder_preset_skills", { presetId, skillIds });
+
+// ── Profiles ──
+
+export const getProfiles = () => invoke<Profile[]>("get_profiles");
+
+export const getActiveProfile = () =>
+  invoke<Profile | null>("get_active_profile");
+
+export const createProfile = (name: string) =>
+  invoke<Profile>("create_profile", { name });
+
+export const renameProfile = (id: string, name: string) =>
+  invoke<void>("rename_profile", { id, name });
+
+export const deleteProfile = (id: string) =>
+  invoke<void>("delete_profile", { id });
+
+export const getProfileDocument = (id: string, folderName?: string | null) =>
+  invoke<string>("get_profile_document", { id, folderName: folderName ?? null });
+
+export const saveProfileDocument = (
+  id: string,
+  folderName: string | null | undefined,
+  content: string
+) => invoke<void>("save_profile_document", { id, folderName: folderName ?? null, content });
+
+export const listProfileHomeFolders = () =>
+  invoke<string[]>("list_profile_home_folders");
+
+export const addProfileFolder = (id: string, folderName: string) =>
+  invoke<void>("add_profile_folder", { id, folderName });
+
+export const removeProfileFolder = (id: string, folderName: string) =>
+  invoke<void>("remove_profile_folder", { id, folderName });
+
+export const activateProfile = (id: string) =>
+  invoke<void>("activate_profile", { id });
 
 // ── Projects ──
 

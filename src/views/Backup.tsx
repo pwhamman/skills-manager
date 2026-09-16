@@ -85,7 +85,7 @@ function formatBytes(bytes: number) {
 
 export function Backup() {
   const { t } = useTranslation();
-  const { managedSkills, refreshManagedSkills, refreshPresets } = useApp();
+  const { managedSkills, refreshManagedSkills, refreshPresets, refreshProfiles } = useApp();
   const [gitStatus, setGitStatus] = useState<GitBackupStatus | null>(null);
   const [remoteInput, setRemoteInput] = useState("");
   const [remoteConfig, setRemoteConfig] = useState("");
@@ -243,13 +243,14 @@ export function Backup() {
         if (event.payload.ok && !event.payload.pending) {
           void refreshManagedSkills();
           void refreshPresets();
+          void refreshProfiles();
         }
       },
     );
     return () => {
       void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
     };
-  }, [mapGitError, refreshGitStatus, refreshPendingConflicts, refreshVersions, refreshManagedSkills, refreshPresets]);
+  }, [mapGitError, refreshGitStatus, refreshPendingConflicts, refreshVersions, refreshManagedSkills, refreshPresets, refreshProfiles]);
 
   const handleToggleAutoBackup = async () => {
     const next = !autoBackupEnabled;
@@ -387,7 +388,7 @@ export function Backup() {
     try {
       await api.gitBackupClone(remoteConfig);
       toast.success(t("settings.gitCloneSuccess"));
-      await Promise.all([refreshGitStatus(true), refreshManagedSkills(), refreshPresets(), refreshVersions()]);
+      await Promise.all([refreshGitStatus(true), refreshManagedSkills(), refreshPresets(), refreshProfiles(), refreshVersions()]);
     } catch (error) {
       toast.error(mapGitError(error));
       throw error;
@@ -422,7 +423,7 @@ export function Backup() {
     try {
       await api.gitBackupReclone(remoteConfig);
       toast.success(t("settings.gitRecoveryRecloneSuccess"));
-      await Promise.all([refreshGitStatus(true), refreshManagedSkills(), refreshPresets(), refreshVersions()]);
+      await Promise.all([refreshGitStatus(true), refreshManagedSkills(), refreshPresets(), refreshProfiles(), refreshVersions()]);
     } catch (error) {
       toast.error(mapGitError(error));
       throw error;
@@ -477,7 +478,7 @@ export function Backup() {
         toast.success(t("settings.gitPullSuccess"));
       }
       if (merge) {
-        await Promise.all([refreshManagedSkills(), refreshPresets()]);
+        await Promise.all([refreshManagedSkills(), refreshPresets(), refreshProfiles()]);
       }
       if (outcome.pushed && outcome.snapshot_tag) {
         toast.success(t("mySkills.gitSyncSuccessWithVersion", { tag: displaySnapshotLabel(outcome.snapshot_tag) }));
@@ -526,6 +527,7 @@ export function Backup() {
         // "Use remote"/"keep both" reindex metadata, which can move preset
         // memberships — keep the sidebar in sync (#302).
         refreshPresets(),
+        refreshProfiles(),
       ]);
     } catch (error) {
       toast.error(mapGitError(error));
@@ -583,7 +585,7 @@ export function Backup() {
         await api.gitBackupSetRemote(res.url);
       }
       toast.success(t("backup.github.connectedRestored"));
-      await Promise.all([refreshGitStatus(true), refreshManagedSkills(), refreshPresets(), refreshVersions()]);
+      await Promise.all([refreshGitStatus(true), refreshManagedSkills(), refreshPresets(), refreshProfiles(), refreshVersions()]);
     } else {
       // Fresh backup: initialize if needed, wire the remote, run the first backup.
       if (!status.is_repo) {
@@ -668,7 +670,7 @@ export function Backup() {
       const safetyTag = await api.gitBackupRestoreVersion(restoreVersionTag);
       toast.success(t("mySkills.gitVersionRestoreSuccess", { tag: displaySnapshotLabel(restoreVersionTag) }));
       toast.info(t("backup.restoreSafetyPoint", { tag: displaySnapshotLabel(safetyTag) }));
-      await Promise.all([refreshGitStatus(), refreshVersions(), refreshManagedSkills(), refreshPresets()]);
+      await Promise.all([refreshGitStatus(), refreshVersions(), refreshManagedSkills(), refreshPresets(), refreshProfiles()]);
       setRestoreVersionTag(null);
     } catch (error) {
       toast.error(mapGitError(error));

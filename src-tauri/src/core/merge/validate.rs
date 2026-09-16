@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::protocol::ProtocolFile;
 use super::snapshot::{MAX_SKILL_DEPTH, METADATA_DIR, tree_is_valid_skill_dir};
-use crate::core::sync_metadata::{SkillMetaFile, path_key};
+use crate::core::{profiles::{self, ProfileMetaFile}, sync_metadata::{SkillMetaFile, path_key}};
 
 /// Skill directories in `tree` that no metadata claims. Used to grandfather
 /// legacy dirt: dirs that were already unclaimed in a merge INPUT (committed
@@ -219,6 +219,53 @@ fn validate_tree(
                     bail!(
                         "merged tree validation: membership {sid}/{skid} references unknown skill"
                     );
+                }
+            }
+        }
+    }
+
+    // 6. profile metadata has fixed IDs and every declared document is a blob.
+    if let Ok(profiles_tree) = subtree(repo, &meta_tree, "profiles") {
+        for entry in profiles_tree.iter() {
+            let name = entry.name().unwrap_or_default().to_string();
+            let Some(id) = name.strip_suffix(".json") else {
+                if tolerate_metadata_junk
+                    && super::decision::is_metadata_namespace_junk(&format!(
+                        "{METADATA_DIR}/profiles/{name}"
+                    ))
+                {
+                    continue;
+                }
+                bail!("merged tree validation: unexpected profile metadata {name}");
+            };
+            let raw = repo
+                .find_blob(entry.id())
+                .with_context(|| format!("profiles/{name} is not a blob"))?
+                .content()
+                .to_vec();
+            let profile: ProfileMetaFile = serde_json::from_slice(&raw)
+                .with_context(|| format!("merged tree validation: profiles/{name} unparsable"))?;
+            if profile.profile_id != id {
+                bail!("merged tree validation: profiles/{name} profile_id mismatch");
+            }
+            profiles::validate_profile_id(id)?;
+            let mut folders = BTreeSet::new();
+            for folder in &profile.folders {
+                profiles::validate_folder_name(folder)?;
+                if !folders.insert(folder) {
+                    bail!("merged tree validation: profile {id} has duplicate folder {folder}");
+                }
+            }
+            let mut documents = vec![format!("profiles/{id}/AGENTS.md")];
+            documents.extend(profile.folders.iter().map(|folder| {
+                format!("profiles/{id}/folders/{folder}/AGENTS.md")
+            }));
+            for document in documents {
+                let document_entry = tree
+                    .get_path(std::path::Path::new(&document))
+                    .with_context(|| format!("merged tree validation: profile document {document} missing"))?;
+                if document_entry.kind() != Some(ObjectType::Blob) {
+                    bail!("merged tree validation: profile document {document} is not a blob");
                 }
             }
         }
