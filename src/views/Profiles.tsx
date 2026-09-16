@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FileText, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -18,17 +18,22 @@ export function Profiles() {
   const [homeFolders, setHomeFolders] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
+  const [profilesOpen, setProfilesOpen] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
 
   const selected = profiles.find((profile) => profile.id === selectedId) ?? profiles[0] ?? null;
 
   useEffect(() => {
-    if (selected && selected.id !== selectedId) {
-      setSelectedId(selected.id);
-      setNameDraft(selected.name);
+    if (!selected) {
+      setNameDraft("");
       setSelectedFolder(null);
+      return;
     }
-  }, [selected, selectedId]);
+    setSelectedId(selected.id);
+    setNameDraft(selected.name);
+    setSelectedFolder(null);
+  }, [selected?.id]);
 
   useEffect(() => {
     if (!selected) {
@@ -49,6 +54,7 @@ export function Profiles() {
     if (!name) return;
     const profile = await api.createProfile(name);
     setNewName("");
+    setCreating(false);
     setSelectedId(profile.id);
     setSelectedFolder(null);
     await refreshProfiles();
@@ -103,44 +109,79 @@ export function Profiles() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="app-panel h-fit p-3">
-          <div className="flex gap-2">
-            <input
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") void createProfile(); }}
-              placeholder={t("profiles.namePlaceholder")}
-              className="app-input min-w-0 flex-1"
-            />
+        <aside className="h-fit">
+          <div className="mb-1.5 px-2.5">
             <button
               type="button"
-              onClick={() => void createProfile()}
-              className="app-button-primary h-10 w-10 shrink-0 p-0"
-              aria-label={t("profiles.new")}
+              onClick={() => setProfilesOpen((open) => !open)}
+              className="flex min-w-0 items-center gap-1 text-left outline-none"
             >
-              <Plus className="h-4 w-4" />
+              {profilesOpen
+                ? <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
+                : <ChevronRight className="h-3 w-3 shrink-0 text-faint" />}
+              <span className="truncate text-[12px] font-semibold tracking-[0.01em] text-muted">
+                {t("sidebar.profiles")}
+              </span>
             </button>
           </div>
-          <div className="mt-3 space-y-0.5">
-            {profiles.map((profile) => {
-              const isSelected = selected?.id === profile.id;
-              return (
-                <button
-                  key={profile.id}
-                  type="button"
-                  onClick={() => { setSelectedId(profile.id); setSelectedFolder(null); }}
-                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-left text-sm leading-5 transition-colors ${isSelected ? "bg-surface-active font-medium text-primary" : "text-tertiary hover:bg-surface-hover hover:text-secondary"}`}
+          {profilesOpen && (
+            <>
+              <div className="space-y-0.5">
+                {profiles.map((profile) => {
+                  const isSelected = selected?.id === profile.id;
+                  return (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      onClick={() => {
+                        setCreating(false);
+                        setSelectedId(profile.id);
+                        setSelectedFolder(null);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-left text-sm leading-5 transition-colors ${isSelected ? "bg-surface-active font-medium text-primary" : "text-tertiary hover:bg-surface-hover hover:text-secondary"}`}
+                    >
+                      <span className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border ${isSelected ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"}`}>
+                        <FileText className="h-3 w-3" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{profile.name}</span>
+                      {profile.active && <Check className="h-4 w-4 shrink-0 text-accent" aria-label={t("profiles.active")} />}
+                    </button>
+                  );
+                })}
+                {profiles.length === 0 && <p className="px-2.5 py-2 text-[13px] text-muted">{t("profiles.noProfiles")}</p>}
+              </div>
+              {creating ? (
+                <form
+                  className="mt-1 flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void createProfile();
+                  }}
                 >
-                  <span className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border ${isSelected ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"}`}>
-                    <FileText className="h-3 w-3" />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{profile.name}</span>
-                  {profile.active && <Check className="h-4 w-4 shrink-0 text-accent" aria-label={t("profiles.active")} />}
+                  <input
+                    autoFocus
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    onBlur={() => { if (!newName.trim()) setCreating(false); }}
+                    placeholder={t("profiles.namePlaceholder")}
+                    className="app-input h-8 min-w-0 flex-1 px-2.5"
+                  />
+                  <button type="submit" className="app-button-primary h-8 w-8 shrink-0 p-0" aria-label={t("profiles.new")}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-sm text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {t("profiles.new")}
                 </button>
-              );
-            })}
-            {profiles.length === 0 && <p className="px-2.5 py-4 text-[13px] text-muted">{t("profiles.noProfiles")}</p>}
-          </div>
+              )}
+            </>
+          )}
         </aside>
 
         {selected && (
