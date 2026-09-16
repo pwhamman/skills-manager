@@ -12,10 +12,13 @@ import {
   Pencil,
   RefreshCw,
   Save,
+  Search,
   ShieldCheck,
+  Trash2,
   Unlink,
   Upload,
   Wrench,
+  X,
   XCircle,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
@@ -32,6 +35,7 @@ import { useApp } from "../context/AppContext";
 import { getErrorKind, getErrorMessage } from "../lib/error";
 import { mapGitErrorMessage } from "../lib/gitErrors";
 import * as api from "../lib/tauri";
+import { getTagColor } from "../lib/skillTags";
 import type {
   GitBackupSizeReport,
   GitBackupStatus,
@@ -119,6 +123,12 @@ export function Backup() {
   const [deleteRemoteConfirmOpen, setDeleteRemoteConfirmOpen] = useState(false);
   const [reconnectMode, setReconnectMode] = useState(false);
   const [backupErrorRaw, setBackupErrorRaw] = useState("");
+  const [exclusions, setExclusions] = useState<api.BackupExclusion[]>([]);
+  const [exclusionPickerOpen, setExclusionPickerOpen] = useState(false);
+  const [exclusionConfirmOpen, setExclusionConfirmOpen] = useState(false);
+  const [selectedExclusionIds, setSelectedExclusionIds] = useState<Set<string>>(new Set());
+  const [exclusionSearch, setExclusionSearch] = useState("");
+  const [removingExclusionId, setRemovingExclusionId] = useState<string | null>(null);
 
   // Abandon an in-flight device-flow poll loop when leaving the page.
   useEffect(() => () => {
@@ -174,6 +184,14 @@ export function Backup() {
     }
   }, []);
 
+  const refreshExclusions = useCallback(async () => {
+    try {
+      setExclusions(await api.gitBackupListExclusions());
+    } catch {
+      setExclusions([]);
+    }
+  }, []);
+
   // "Needs attention" sync conflicts (merge-engine design §4).
   const refreshPendingConflicts = useCallback(async () => {
     try {
@@ -182,6 +200,27 @@ export function Backup() {
       setPendingConflicts([]);
     }
   }, []);
+  const allTags = useMemo(
+    () => Array.from(new Set(managedSkills.flatMap((skill) => skill.tags))).sort(),
+    [managedSkills],
+  );
+  const exclusionIds = useMemo(
+    () => new Set(exclusions.map((exclusion) => exclusion.skill_id)),
+    [exclusions],
+  );
+  const selectableExclusionSkills = useMemo(() => {
+    const query = exclusionSearch.trim().toLocaleLowerCase();
+    return managedSkills.filter((skill) => {
+      if (exclusionIds.has(skill.id)) return false;
+      if (!query) return true;
+      return [skill.name, skill.description, skill.source_type, ...skill.tags]
+        .some((value) => value?.toLocaleLowerCase().includes(query) ?? false);
+    });
+  }, [exclusionIds, exclusionSearch, managedSkills]);
+  const selectedExclusionSkills = useMemo(
+    () => managedSkills.filter((skill) => selectedExclusionIds.has(skill.id)),
+    [managedSkills, selectedExclusionIds],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -222,8 +261,9 @@ export function Backup() {
         void refreshPendingConflicts();
         api.gitBackupSizeReport().then(setSizeReport).catch(() => setSizeReport(null));
       }
+      void refreshExclusions();
     })();
-  }, [mapGitError, refreshGitStatus, refreshPendingConflicts, refreshVersions, t]);
+  }, [mapGitError, refreshExclusions, refreshGitStatus, refreshPendingConflicts, refreshVersions, t]);
 
   // Live updates from the background auto-backup rounds.
   useEffect(() => {
@@ -235,6 +275,7 @@ export function Backup() {
         void refreshGitStatus();
         void refreshVersions();
         void refreshPendingConflicts();
+        void refreshExclusions();
         // A completed background round may have merged remote changes into the
         // library (multi-device auto-sync reindexes skills + presets into the
         // DB). The merge is an app-internal write, so the file watcher's
@@ -250,7 +291,7 @@ export function Backup() {
     return () => {
       void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
     };
-  }, [mapGitError, refreshGitStatus, refreshPendingConflicts, refreshVersions, refreshManagedSkills, refreshPresets, refreshProfiles]);
+  }, [mapGitError, refreshExclusions, refreshGitStatus, refreshPendingConflicts, refreshVersions, refreshManagedSkills, refreshPresets, refreshProfiles]);
 
   const handleToggleAutoBackup = async () => {
     const next = !autoBackupEnabled;
@@ -487,7 +528,7 @@ export function Backup() {
       }
       setBackupError(null);
       setBackupErrorRaw("");
-      await Promise.all([refreshGitStatus(true), refreshVersions()]);
+      await Promise.all([refreshGitStatus(true), refreshVersions(), refreshExclusions()]);
     } catch (error) {
       setBackupError(mapGitError(error));
       setBackupErrorRaw(getErrorMessage(error, ""));
@@ -689,6 +730,51 @@ export function Backup() {
       toast.success(t("backup.device.renamed"));
     } catch {
       toast.error(t("common.error"));
+    }
+  };
+
+  const toggleExclusionSelection = (skillId: string) => {
+    setSelectedExclusionIds((current) => {
+      const next = new Set(current);
+      if (next.has(skillId)) {
+        next.delete(skillId);
+      } else {
+        next.add(skillId);
+      }
+      return next;
+    });
+  };
+
+  const handleExcludeSkills = async () => {
+    try {
+      await api.gitBackupExcludeSkills(selectedExclusionSkills.map((skill) => skill.id));
+      setExclusionPickerOpen(false);
+      setSelectedExclusionIds(new Set());
+      setExclusionSearch("");
+      await Promise.all([
+        refreshManagedSkills(),
+        refreshPresets(),
+        refreshProfiles(),
+        refreshExclusions(),
+        refreshGitStatus(),
+      ]);
+      toast.success(t("backup.exclusions.excludeSuccess", { count: selectedExclusionSkills.length }));
+    } catch (error) {
+      toast.error(t("backup.exclusions.error", { error: mapGitError(error) }));
+      throw error;
+    }
+  };
+
+  const handleRemoveExclusion = async (skillId: string) => {
+    setRemovingExclusionId(skillId);
+    try {
+      await api.gitBackupRemoveExclusion(skillId);
+      await Promise.all([refreshExclusions(), refreshGitStatus()]);
+      toast.success(t("backup.exclusions.removeSuccess"));
+    } catch (error) {
+      toast.error(t("backup.exclusions.error", { error: mapGitError(error) }));
+    } finally {
+      setRemovingExclusionId(null);
     }
   };
 
@@ -1230,6 +1316,56 @@ export function Backup() {
           <section className="app-panel p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
+                <h2 className="text-[14px] font-semibold text-secondary">{t("backup.exclusions.title")}</h2>
+                <p className="mt-1 text-[12px] leading-5 text-muted">{t("backup.exclusions.desc")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExclusionPickerOpen(true)}
+                className="shrink-0 rounded-lg border border-border-subtle px-2.5 py-1 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-hover"
+              >
+                {t("backup.exclusions.add")}
+              </button>
+            </div>
+            {exclusions.length === 0 ? (
+              <p className="mt-3 rounded-md border border-dashed border-border-subtle px-3 py-2 text-[12px] leading-5 text-muted">
+                {t("backup.exclusions.empty")}
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {exclusions.map((exclusion) => {
+                  const stale = !managedSkills.some((skill) => skill.id === exclusion.skill_id);
+                  const removing = removingExclusionId === exclusion.skill_id;
+                  return (
+                    <li
+                      key={exclusion.skill_id}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-secondary px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-medium text-secondary">{exclusion.name}</div>
+                        {stale && (
+                          <div className="mt-0.5 text-[11px] text-faint">{t("backup.exclusions.stale")}</div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveExclusion(exclusion.skill_id)}
+                        disabled={removing}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border-subtle px-2 text-[11px] font-medium text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
+                      >
+                        {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        {t("backup.exclusions.remove")}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section className="app-panel p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <h2 className="text-[14px] font-semibold text-secondary">{t("backup.auto.title")}</h2>
                 <p className="mt-1 text-[12px] leading-5 text-muted">{t("backup.auto.desc")}</p>
               </div>
@@ -1316,6 +1452,145 @@ export function Backup() {
         </aside>
       </div>
 
+      {exclusionPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label={t("common.cancel")}
+            className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
+            onClick={() => setExclusionPickerOpen(false)}
+          />
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="backup-exclusion-picker-title"
+            className="relative flex max-h-[calc(85vh/var(--app-scale))] w-full max-w-2xl flex-col rounded-xl border border-border bg-surface p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="backup-exclusion-picker-title" className="text-[15px] font-semibold text-primary">
+                  {t("backup.exclusions.pickerTitle")}
+                </h2>
+                <p className="mt-1 text-[13px] leading-5 text-muted">{t("backup.exclusions.pickerDesc")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExclusionPickerOpen(false)}
+                aria-label={t("common.cancel")}
+                className="rounded p-1 text-muted transition-colors hover:text-secondary"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <label className="relative mt-4 block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+              <input
+                type="search"
+                value={exclusionSearch}
+                onChange={(event) => setExclusionSearch(event.target.value)}
+                placeholder={t("backup.exclusions.search")}
+                className="h-9 w-full rounded-lg border border-border-subtle bg-background py-2 pl-9 pr-3 text-[13px] text-secondary outline-none transition-colors focus:border-border"
+              />
+            </label>
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+              {selectableExclusionSkills.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border-subtle px-3 py-6 text-center text-[13px] text-muted">
+                  {t("backup.exclusions.pickerEmpty")}
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {selectableExclusionSkills.map((skill) => {
+                    const selected = selectedExclusionIds.has(skill.id);
+                    return (
+                      <li key={skill.id}>
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => toggleExclusionSelection(skill.id)}
+                          className={cn(
+                            "w-full rounded-md border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                            selected
+                              ? "border-accent-border bg-accent-bg"
+                              : "border-border-subtle bg-bg-secondary hover:bg-surface-hover",
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span
+                              className={cn(
+                                "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                                selected ? "border-accent bg-accent text-white" : "border-border bg-surface",
+                              )}
+                            >
+                              {selected && <Check className="h-3 w-3" />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="text-[13px] font-medium text-primary">{skill.name}</span>
+                                <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium text-muted">
+                                  {skill.source_type === "skillssh" ? "skills.sh" : skill.source_type}
+                                </span>
+                              </span>
+                              {skill.description && (
+                                <span className="mt-1 block text-[12px] leading-5 text-muted">{skill.description}</span>
+                              )}
+                              {skill.tags.length > 0 && (
+                                <span className="mt-2 flex flex-wrap gap-1">
+                                  {skill.tags.map((tag) => (
+                                    <span
+                                      key={tag}
+                                      className={cn(
+                                        "inline-flex rounded-full px-1.5 py-0.5 text-[10.5px] font-medium",
+                                        getTagColor(tag, allTags),
+                                      )}
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-border-subtle pt-4">
+              <span className="text-[12px] text-muted">
+                {t("backup.exclusions.selected", { count: selectedExclusionSkills.length })}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExclusionPickerOpen(false)}
+                  className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary"
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExclusionConfirmOpen(true)}
+                  disabled={selectedExclusionSkills.length === 0}
+                  className="rounded-lg border border-red-500/50 bg-red-600/90 px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t("backup.exclusions.confirmAction")}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+      <ConfirmDialog
+        open={exclusionConfirmOpen}
+        title={t("backup.exclusions.confirmTitle")}
+        message={t("backup.exclusions.confirmMessage")}
+        details={selectedExclusionSkills.map((skill) => skill.name)}
+        confirmLabel={t("backup.exclusions.confirmAction")}
+        onClose={() => setExclusionConfirmOpen(false)}
+        onConfirm={handleExcludeSkills}
+      />
       <ConfirmDialog
         open={restoreVersionTag !== null}
         title={t("mySkills.gitVersionRestoreTitle")}

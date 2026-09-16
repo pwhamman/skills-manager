@@ -197,6 +197,25 @@
       "oversizedSkill": "\"{{name}}\" is {{size}} — already backed up; large skills may make backups slow.",
       "oversizedExcluded": "\"{{name}}\" is {{size}} — over the 100 MB limit, kept on this machine and not backed up."
     },
+    "exclusions": {
+      "title": "Excluded Skills",
+      "desc": "Excluded skills are removed from the shared backup on every connected device.",
+      "add": "Add skills",
+      "empty": "No skills are permanently excluded.",
+      "remove": "Remove policy",
+      "stale": "No longer in this library",
+      "pickerTitle": "Exclude skills from backup",
+      "pickerDesc": "Choose skills to permanently delete from this library and their deployed copies.",
+      "search": "Search skills",
+      "pickerEmpty": "No matching skills.",
+      "selected": "{{count}} selected",
+      "confirmTitle": "Permanently exclude selected skills?",
+      "confirmMessage": "This deletes the selected skills from this library and their deployed copies. The next backup removes them from connected devices.",
+      "confirmAction": "Exclude and delete",
+      "excludeSuccess": "Excluded {{count}} skill(s).",
+      "removeSuccess": "Exclusion policy removed. The deleted skill was not restored.",
+      "error": "Couldn’t update exclusions: {{error}}"
+    },
     "disconnect": {
       "title": "Disconnect This Machine",
       "desc": "Removes the backup connection and the access credential saved on this machine only. Local skills and remote backup data are kept.",
