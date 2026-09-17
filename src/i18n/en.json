@@ -10,6 +10,7 @@
     "installSkills": "Install Skills",
     "backup": "Backup",
     "presets": "Presets",
+    "plugins": "Plugins",
     "newPreset": "New Preset",
     "projects": "Project Workspaces",
     "addProject": "Link Project",
@@ -1137,5 +1138,35 @@
       "deletedLocalBatch": "{{count}} local skills deleted",
       "deleteLocalBatchFailed": "{{count}} local skills failed to delete"
     }
+  },
+  "plugins": {
+    "eyebrow": "Skill packages",
+    "title": "Plugins",
+    "description": "Import Cursor plugin packages or compose reusable local packages from your library.",
+    "new": "New plugin",
+    "import": "Preview import",
+    "importLabel": "Cursor plugin repository URL",
+    "confirmImport": "Import plugin",
+    "imported": "Plugin imported",
+    "created": "Plugin created",
+    "importSkills_one": "1 declared skill",
+    "importSkills_other": "{{count}} declared skills",
+    "ignoredComponents": "Agents and rules are not installed as skills.",
+    "noDescription": "No description",
+    "namePlaceholder": "Plugin name",
+    "descriptionPlaceholder": "Description (optional)",
+    "members_one": "1 skill",
+    "members_other": "{{count}} skills",
+    "dependencies_one": "1 dependency",
+    "dependencies_other": "{{count}} dependencies",
+    "active": "Active",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "deleted": "Plugin deleted",
+    "deleteTitle": "Delete plugin?",
+    "deleteConfirm": "Delete “{{name}}”? Its managed targets are removed, but its library skills remain available.",
+    "deduplicate": "Use existing skills",
+    "deduplicated": "{{count}} package skills now use existing library skills.",
+    "empty": "No plugin packages yet."
   }
 }

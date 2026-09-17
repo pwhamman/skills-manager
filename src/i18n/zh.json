@@ -10,6 +10,7 @@
     "installSkills": "安装 Skills",
     "backup": "备份",
     "presets": "Preset",
+    "plugins": "插件",
     "newPreset": "新建 Preset",
     "projects": "项目工作区",
     "addProject": "关联项目",
@@ -1137,5 +1138,35 @@
       "deletedLocalBatch": "已删除 {{count}} 个本地 Skill",
       "deleteLocalBatchFailed": "{{count}} 个本地 Skill 删除失败"
     }
+  },
+  "plugins": {
+    "eyebrow": "技能包",
+    "title": "插件",
+    "description": "从 Cursor 插件包导入，或从技能库组合可复用的本地包。",
+    "new": "新建插件",
+    "import": "预览导入",
+    "importLabel": "Cursor 插件仓库 URL",
+    "confirmImport": "导入插件",
+    "imported": "插件已导入",
+    "created": "插件已创建",
+    "importSkills_one": "1 个声明的技能",
+    "importSkills_other": "{{count}} 个声明的技能",
+    "ignoredComponents": "Agents 和 rules 不会作为技能安装。",
+    "noDescription": "没有描述",
+    "namePlaceholder": "插件名称",
+    "descriptionPlaceholder": "描述（可选）",
+    "members_one": "1 个技能",
+    "members_other": "{{count}} 个技能",
+    "dependencies_one": "1 个依赖",
+    "dependencies_other": "{{count}} 个依赖",
+    "active": "已激活",
+    "activate": "激活",
+    "deactivate": "停用",
+    "deleted": "插件已删除",
+    "deleteTitle": "删除插件？",
+    "deleteConfirm": "删除“{{name}}”？其受管理目标将被移除，但技能库中的技能会保留。",
+    "deduplicate": "使用现有技能",
+    "deduplicated": "{{count}} 个插件技能现已使用现有技能库技能。",
+    "empty": "尚无插件包。"
   }
 }

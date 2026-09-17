@@ -17,6 +17,7 @@ import {
   Link2,
   ChevronDown,
   ChevronRight,
+  Package,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -49,8 +50,9 @@ function getSyncHealthIndicator(health: SyncHealth, skillCount: number): { color
 export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
+  const selectedPluginId = new URLSearchParams(location.search).get("plugin");
   const navigate = useNavigate();
-  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, refreshProfiles, appUpdate } = useApp();
+  const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, refreshProfiles, plugins, appUpdate } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateProfile, setShowCreateProfile] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
@@ -72,6 +74,7 @@ export function Sidebar() {
   const [orderedLobsterTools, setOrderedLobsterTools] = useState(installedLobsterTools);
   const presetReorderQueueRef = useRef<Promise<void>>(Promise.resolve());
   const projectReorderQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [pluginsOpen, setPluginsOpen] = useState(true);
   const [presetsOpen, setPresetsOpen] = useState(true);
   const [profilesOpen, setProfilesOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -495,6 +498,61 @@ export function Sidebar() {
               <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
             </>
           )}
+
+          {/* ── Plugins ── */}
+          <div className="mb-1.5 px-2.5 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPluginsOpen((open) => !open)}
+              aria-label={t("sidebar.plugins")}
+              className="rounded p-0.5 text-faint outline-none hover:text-muted focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {pluginsOpen
+                ? <ChevronDown className="h-3 w-3 shrink-0" />
+                : <ChevronRight className="h-3 w-3 shrink-0" />}
+            </button>
+            <Link
+              to="/plugins"
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 text-[12px] font-semibold tracking-[0.01em] whitespace-nowrap outline-none",
+                location.pathname === "/plugins" ? "text-primary" : "text-muted hover:text-secondary"
+              )}
+            >
+              <span className="truncate">{t("sidebar.plugins")}</span>
+              {plugins.length > 0 && <span className="rounded-full bg-surface-hover px-1.5 text-[12px] font-medium leading-[18px] tabular-nums text-muted">{plugins.length}</span>}
+            </Link>
+          </div>
+          {pluginsOpen && plugins.map((plugin) => (
+            <Link
+              key={plugin.id}
+              to={`/plugins?plugin=${encodeURIComponent(plugin.id)}`}
+              className={cn(
+                "mx-2.5 mb-0.5 flex items-center gap-2 rounded-md px-2.5 py-[7px] text-sm transition-colors outline-none",
+                selectedPluginId === plugin.id
+                  ? "bg-surface-active font-medium text-primary"
+                  : "text-tertiary hover:bg-surface-hover hover:text-secondary"
+              )}
+            >
+              <span className={cn(
+                "flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border",
+                selectedPluginId === plugin.id ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"
+              )}>
+                <Package className="h-3 w-3" />
+              </span>
+              <span className="flex-1 truncate">{plugin.display_name}</span>
+              <span className="text-[12px] font-medium tabular-nums text-muted">{plugin.skill_ids.length}</span>
+            </Link>
+          ))}
+          {pluginsOpen && (
+            <Link
+              to="/plugins?new=1"
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-sm text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t("plugins.new")}
+            </Link>
+          )}
+          <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
 
           {/* ── Presets ── */}
           <div className="mb-1.5 px-2.5 flex items-center gap-1">

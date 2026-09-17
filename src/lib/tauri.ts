@@ -109,6 +109,57 @@ export interface Preset {
   updated_at: number;
 }
 
+export interface PluginSource {
+  source_ref: string;
+  source_ref_resolved: string;
+  branch: string | null;
+  revision: string | null;
+}
+
+export interface DeclaredPluginSkill {
+  relative_path: string;
+  name: string;
+  description: string | null;
+}
+
+export interface PluginPreview {
+  name: string;
+  display_name: string;
+  description: string | null;
+  version: string | null;
+  homepage: string | null;
+  author: { name: string } | null;
+  source: PluginSource;
+  skills: DeclaredPluginSkill[];
+  ignored_agents: boolean;
+  ignored_rules: boolean;
+}
+
+export interface Plugin {
+  id: string;
+  slug: string;
+  kind: "cursor" | "manual";
+  name: string;
+  display_name: string;
+  description: string | null;
+  version: string | null;
+  source_ref: string | null;
+  source_ref_resolved: string | null;
+  source_branch: string | null;
+  source_revision: string | null;
+  author: string | null;
+  homepage: string | null;
+  active: boolean;
+  skill_ids: string[];
+  dependency_ids: string[];
+  setup_state: Record<string, unknown>;
+}
+
+export interface PluginInstallPreview {
+  temp_dir: string;
+  plugin: PluginPreview;
+}
+
 export interface Profile {
   id: string;
   name: string;
@@ -794,6 +845,61 @@ export const getPresetSkillOrder = (presetId: string) =>
 
 export const reorderPresetSkills = (presetId: string, skillIds: string[]) =>
   invoke<void>("reorder_preset_skills", { presetId, skillIds });
+
+// ── Plugins ──
+
+export const getPlugins = () => invoke<Plugin[]>("get_plugins");
+
+export const previewPluginInstall = (repoUrl: string) =>
+  invoke<PluginInstallPreview>("preview_plugin_install", { repoUrl });
+
+export const confirmPluginInstall = (repoUrl: string, tempDir: string) =>
+  invoke<Plugin>("confirm_plugin_install", { repoUrl, tempDir });
+
+export const cancelPluginPreview = (tempDir: string) =>
+  invoke<void>("cancel_plugin_preview", { tempDir });
+
+export const activatePlugin = (pluginId: string) =>
+  invoke<void>("activate_plugin", { pluginId });
+
+export const deactivatePlugin = (pluginId: string) =>
+  invoke<void>("deactivate_plugin", { pluginId });
+
+export const deletePlugin = (pluginId: string) =>
+  invoke<void>("delete_plugin", { pluginId });
+
+export const reconcilePluginSkills = (pluginId: string) =>
+  invoke<number>("reconcile_plugin_skills", { pluginId });
+
+export const createManualPlugin = (
+  displayName: string,
+  description: string | null,
+  skillIds: string[],
+  dependencyIds: string[],
+  setupState: Record<string, unknown> = {},
+) =>
+  invoke<Plugin>("create_manual_plugin", {
+    displayName,
+    description,
+    skillIds,
+    dependencyIds,
+    setupState,
+  });
+
+export const updateManualPlugin = (
+  pluginId: string,
+  displayName: string,
+  description: string | null,
+  skillIds: string[],
+  dependencyIds: string[],
+) =>
+  invoke<Plugin>("update_manual_plugin", {
+    pluginId,
+    displayName,
+    description,
+    skillIds,
+    dependencyIds,
+  });
 
 // ── Profiles ──
 

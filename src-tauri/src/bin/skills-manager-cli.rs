@@ -6,7 +6,7 @@ use anyhow::{Context, anyhow, bail};
 use app_lib::commands::{presets as preset_cmd, skills as cmd, tools as tool_cmd};
 use app_lib::core::{
     app_state, audit_log::AuditDraft, central_repo, error::AppError, git_backup, git_fetcher,
-    installer, merge, repo_lock::RepoLock, scenario_service, skill_metadata,
+    installer, merge, plugins, repo_lock::RepoLock, scenario_service, skill_metadata,
     skill_store::SkillStore, skillssh_api, sync_engine, sync_metadata, tool_adapters, tool_service,
 };
 use clap::{Args, Parser, Subcommand};
@@ -32,6 +32,7 @@ enum Commands {
     Skills(SkillsArgs),
     #[command(alias = "scenarios")]
     Presets(PresetArgs),
+    Plugins(PluginArgs),
     Git(GitArgs),
 }
 
@@ -342,6 +343,20 @@ enum PresetCommand {
         #[arg(required = true)]
         skills: Vec<String>,
     },
+}
+
+#[derive(Args, Debug)]
+struct PluginArgs {
+    #[command(subcommand)]
+    command: PluginCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum PluginCommand {
+    List,
+    Activate { reference: String },
+    Import { repo_url: String },
+    Deactivate { reference: String },
 }
 
 #[derive(Args, Debug)]
@@ -700,6 +715,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Tools(args) => run_tools(args, &store, cli.json),
         Commands::Skills(args) => run_skills(args, &store, cli.json),
         Commands::Presets(args) => run_presets(args, &store, cli.json),
+        Commands::Plugins(args) => run_plugins(args, &store, cli.json),
         Commands::Git(args) => run_git(args, &store, cli.skills_root.is_some(), cli.json),
     }
 }
@@ -2368,6 +2384,54 @@ fn run_tag(args: TagArgs, store: &SkillStore, json: bool) -> anyhow::Result<()> 
             } else {
                 print_json(&store.get_all_tags()?, json);
             }
+        }
+    }
+    Ok(())
+}
+
+// ── plugins ───────────────────────────────────────────────────────────────
+
+fn run_plugins(args: PluginArgs, store: &SkillStore, json: bool) -> anyhow::Result<()> {
+    match args.command {
+        PluginCommand::List => print_json(&store.get_all_plugins()?, json),
+        PluginCommand::Import { repo_url } => {
+            let parsed = git_fetcher::parse_git_source_resolved(&repo_url, store.proxy_url().as_deref());
+            let temp_dir = git_fetcher::clone_repo_ref_scoped(
+                &parsed.clone_url,
+                parsed.branch.as_deref(),
+                parsed.subpath.as_deref(),
+                None,
+                store.proxy_url().as_deref(),
+                None,
+            )?;
+            let source = plugins::PluginSource {
+                source_ref: repo_url.clone(),
+                source_ref_resolved: parsed.clone_url,
+                branch: parsed.branch,
+                revision: git_fetcher::get_head_revision(&temp_dir).ok(),
+            };
+            let result = (|| {
+                let _lock = RepoLock::acquire_foreground("import plugin")?;
+                plugins::import_cursor_plugin(store, &repo_url, &temp_dir, source)
+            })();
+            git_fetcher::cleanup_temp(&temp_dir);
+            print_json(&result?, json);
+        }
+        PluginCommand::Activate { reference } => {
+            let plugin = store
+                .resolve_plugin_reference(&reference)?
+                .ok_or_else(|| anyhow!("plugin not found: {reference}"))?;
+            let _lock = RepoLock::acquire_foreground("activate plugin")?;
+            plugins::activate_plugin(store, &plugin.id)?;
+            print_json(&store.get_plugin_by_id(&plugin.id)?, json);
+        }
+        PluginCommand::Deactivate { reference } => {
+            let plugin = store
+                .resolve_plugin_reference(&reference)?
+                .ok_or_else(|| anyhow!("plugin not found: {reference}"))?;
+            let _lock = RepoLock::acquire_foreground("deactivate plugin")?;
+            plugins::deactivate_plugin(store, &plugin.id)?;
+            print_json(&store.get_plugin_by_id(&plugin.id)?, json);
         }
     }
     Ok(())
