@@ -310,29 +310,40 @@ pub fn import_cursor_plugin(
             skill.id
         } else {
             let installed = installer::install_from_git_dir(&source_dir, Some(&declared.name))?;
-            let id = uuid::Uuid::new_v4().to_string();
-            store.insert_skill(&SkillRecord {
-                id: id.clone(),
-                name: installed.name,
-                description: installed.description,
-                source_type: "git".to_string(),
-                source_ref: Some(repo_url.to_string()),
-                source_ref_resolved: Some(parsed.clone_url.clone()),
-                source_subpath: subpath,
-                source_branch: parsed.branch.clone(),
-                source_revision: Some(revision.clone()),
-                remote_revision: Some(revision.clone()),
-                central_path: installed.central_path.to_string_lossy().to_string(),
-                content_hash: Some(installed.content_hash),
-                enabled: true,
-                created_at: now,
-                updated_at: now,
-                status: "ok".to_string(),
-                update_status: "up_to_date".to_string(),
-                last_checked_at: Some(now),
-                last_check_error: None,
-            })?;
-            id
+            // `install_from_git_dir` returns an existing library directory only
+            // when its content hash matches the declared source. Reuse that
+            // record instead of attempting a second row for its unique path:
+            // a pre-existing equivalent skill remains its own source record
+            // while becoming a member of this package.
+            if let Some(skill) = store.get_skill_by_central_path(
+                &installed.central_path.to_string_lossy(),
+            )? {
+                skill.id
+            } else {
+                let id = uuid::Uuid::new_v4().to_string();
+                store.insert_skill(&SkillRecord {
+                    id: id.clone(),
+                    name: installed.name,
+                    description: installed.description,
+                    source_type: "git".to_string(),
+                    source_ref: Some(repo_url.to_string()),
+                    source_ref_resolved: Some(parsed.clone_url.clone()),
+                    source_subpath: subpath,
+                    source_branch: parsed.branch.clone(),
+                    source_revision: Some(revision.clone()),
+                    remote_revision: Some(revision.clone()),
+                    central_path: installed.central_path.to_string_lossy().to_string(),
+                    content_hash: Some(installed.content_hash),
+                    enabled: true,
+                    created_at: now,
+                    updated_at: now,
+                    status: "ok".to_string(),
+                    update_status: "up_to_date".to_string(),
+                    last_checked_at: Some(now),
+                    last_check_error: None,
+                })?;
+                id
+            }
         };
         skill_ids.push(skill_id);
     }
@@ -595,14 +606,15 @@ pub fn restore_pstack_document(store: &SkillStore, plugin_id: &str, document_key
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::central_repo;
     use std::fs;
+    use std::process::Command;
     use tempfile::tempdir;
 
     fn source() -> PluginSource {
         PluginSource {
             source_ref: "https://example.test/org/plugin".to_string(),
             source_ref_resolved: "https://example.test/org/plugin.git".to_string(),
-
             branch: Some("main".to_string()),
             revision: Some("abc123".to_string()),
         }
@@ -623,6 +635,90 @@ mod tests {
         fs::write(skill.join("SKILL.md"), "---\nname: Example Skill\ndescription: Example\n---\n").unwrap();
     }
 
+    fn git(dir: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn import_reuses_existing_library_record_at_matching_content_path() {
+        let _guard = central_repo::test_base_dir_lock();
+        let temp = tempdir().unwrap();
+        let base = temp.path().join("library");
+        central_repo::set_test_base_dir_override(Some(base.clone()));
+        let skills_dir = central_repo::skills_dir();
+        fs::create_dir_all(&skills_dir).unwrap();
+        let store = SkillStore::new(&base.join("test.db")).unwrap();
+
+        let clone = std::env::temp_dir()
+            .join(format!("{}{}", git_fetcher::CLONE_TEMP_PREFIX, uuid::Uuid::new_v4()));
+        fs::create_dir_all(&clone).unwrap();
+        write_manifest(&clone, "./skills");
+        write_skill(&clone, "skills/one");
+        git(&clone, &["init", "-b", "main"]);
+        git(&clone, &["add", "."]);
+        git(
+            &clone,
+            &[
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test",
+                "commit",
+                "-m",
+                "fixture",
+            ],
+        );
+
+        let installed = installer::install_from_git_dir(
+            &clone.join("skills/one"),
+            Some("Example Skill"),
+        )
+        .unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        store
+            .insert_skill(&SkillRecord {
+                id: "existing-skill".to_string(),
+                name: installed.name,
+                description: installed.description,
+                source_type: "local".to_string(),
+                source_ref: None,
+                source_ref_resolved: None,
+                source_subpath: None,
+                source_branch: None,
+                source_revision: None,
+                remote_revision: None,
+                central_path: installed.central_path.to_string_lossy().to_string(),
+                content_hash: Some(installed.content_hash),
+                enabled: true,
+                created_at: now,
+                updated_at: now,
+                status: "ok".to_string(),
+                update_status: "up_to_date".to_string(),
+                last_checked_at: Some(now),
+                last_check_error: None,
+            })
+            .unwrap();
+
+        let plugin = import_cursor_plugin(&store, &source().source_ref, &clone, source()).unwrap();
+        assert_eq!(
+            store.get_plugin_skill_ids(&plugin.id).unwrap(),
+            vec!["existing-skill"]
+        );
+        assert_eq!(store.get_all_skills().unwrap().len(), 1);
+
+        central_repo::set_test_base_dir_override(None);
+        fs::remove_dir_all(clone).unwrap();
+    }
     #[test]
     fn cursor_manifest_accepts_only_declared_skill_subtree() {
         let temp = tempdir().unwrap();
