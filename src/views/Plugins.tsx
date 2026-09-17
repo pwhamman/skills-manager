@@ -1,13 +1,16 @@
-import { useMemo, useState } from "react";
-import { Box, Check, Download, Loader2, PackagePlus, Play, Square, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Box, Check, Download, Loader2, PackagePlus, Play, Square, Trash2, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useApp } from "../context/AppContext";
 import * as api from "../lib/tauri";
-import type { PluginInstallPreview } from "../lib/tauri";
+import type { Plugin, PluginInstallPreview } from "../lib/tauri";
 
 export function Plugins() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { plugins, managedSkills, refreshManagedSkills, refreshPlugins } = useApp();
   const [importUrl, setImportUrl] = useState("");
   const [preview, setPreview] = useState<PluginInstallPreview | null>(null);
@@ -16,7 +19,15 @@ export function Plugins() {
   const [manualName, setManualName] = useState("");
   const [manualDescription, setManualDescription] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
 
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setCreating(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const skillNames = useMemo(
     () => new Map(managedSkills.map((skill) => [skill.id, skill.name])),
     [managedSkills],
@@ -98,6 +109,21 @@ export function Plugins() {
       await refresh();
     } catch (error) {
       toast.error(String(error));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setBusy(deleteTarget.id);
+    try {
+      await api.deletePlugin(deleteTarget.id);
+      await refresh();
+      toast.success(t("plugins.deleted"));
+    } catch (error) {
+      toast.error(String(error));
+      throw error;
     } finally {
       setBusy(null);
     }
@@ -185,13 +211,24 @@ export function Plugins() {
           <article key={plugin.id} className="rounded-lg border border-border bg-surface p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface-hover text-accent"><Box className="h-4 w-4" /></span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate text-base font-semibold text-primary">{plugin.display_name}</h2>{plugin.active && <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-500">{t("plugins.active")}</span>}</div><p className="mt-1 text-sm text-muted">{plugin.description || t("plugins.noDescription")}</p><p className="mt-2 text-xs text-faint">{t("plugins.members", { count: plugin.skill_ids.length })} · {t("plugins.dependencies", { count: plugin.dependency_ids.length })}{plugin.version ? ` · v${plugin.version}` : ""}</p></div></div>
-              <button type="button" onClick={() => handleActivation(plugin.id, plugin.active)} disabled={busy !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-secondary hover:bg-surface-hover disabled:opacity-50">{busy === plugin.id ? <Loader2 className="h-4 w-4 animate-spin" /> : plugin.active ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}{plugin.active ? t("plugins.deactivate") : t("plugins.activate")}</button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => handleActivation(plugin.id, plugin.active)} disabled={busy !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-secondary hover:bg-surface-hover disabled:opacity-50">{busy === plugin.id ? <Loader2 className="h-4 w-4 animate-spin" /> : plugin.active ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}{plugin.active ? t("plugins.deactivate") : t("plugins.activate")}</button>
+                <button type="button" onClick={() => setDeleteTarget(plugin)} disabled={busy !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-red-500/40 px-3 text-sm font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />{t("common.delete")}</button>
+              </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">{plugin.skill_ids.map((skillId) => <span key={skillId} className="rounded border border-border-subtle bg-surface-hover px-2 py-1 text-xs text-muted">{skillNames.get(skillId) || skillId}</span>)}</div>
           </article>
         ))}
         {plugins.length === 0 && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted">{t("plugins.empty")}</div>}
       </section>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={t("plugins.deleteTitle")}
+        message={t("plugins.deleteConfirm", { name: deleteTarget?.display_name || "" })}
+        confirmLabel={t("common.delete")}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

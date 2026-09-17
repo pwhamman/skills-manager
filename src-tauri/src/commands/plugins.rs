@@ -317,6 +317,28 @@ pub async fn deactivate_plugin(
     .await?
 }
 
+#[tauri::command]
+pub async fn delete_plugin(
+    plugin_id: String,
+    store: State<'_, Arc<SkillStore>>,
+) -> Result<(), AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        sync_metadata::with_repo_lock("delete plugin", || {
+            let plugin = store
+                .get_plugin_by_id(&plugin_id)?
+                .ok_or_else(|| anyhow::anyhow!("plugin not found"))?;
+            if plugin.active {
+                plugins::deactivate_plugin(&store, &plugin.id)?;
+            }
+            store.delete_plugin(&plugin.id)?;
+            sync_metadata::write_all_from_db_unlocked(&store)
+        })
+        .map_err(AppError::io)
+    })
+    .await?
+}
+
 fn manual_slug(store: &SkillStore, name: &str) -> anyhow::Result<String> {
     let base = name
         .to_ascii_lowercase()

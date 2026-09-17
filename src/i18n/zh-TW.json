@@ -1078,6 +1078,9 @@
     "active": "已啟用",
     "activate": "啟用",
     "deactivate": "停用",
+    "deleted": "外掛已刪除",
+    "deleteTitle": "刪除外掛？",
+    "deleteConfirm": "刪除「{{name}}」？其受管理目標將被移除，但技能庫中的技能會保留。",
     "empty": "尚無外掛套件。"
   }
 }

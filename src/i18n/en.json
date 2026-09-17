@@ -1162,6 +1162,9 @@
     "active": "Active",
     "activate": "Activate",
     "deactivate": "Deactivate",
+    "deleted": "Plugin deleted",
+    "deleteTitle": "Delete plugin?",
+    "deleteConfirm": "Delete “{{name}}”? Its managed targets are removed, but its library skills remain available.",
     "empty": "No plugin packages yet."
   }
 }

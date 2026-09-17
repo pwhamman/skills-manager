@@ -1127,6 +1127,7 @@ pub fn run() {
             commands::plugins::update_manual_plugin,
             commands::plugins::activate_plugin,
             commands::plugins::deactivate_plugin,
+            commands::plugins::delete_plugin,
             // Sync
             commands::sync::sync_skill_to_tool,
             commands::sync::unsync_skill_from_tool,

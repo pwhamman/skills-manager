@@ -542,6 +542,15 @@ export function Sidebar() {
               <span className="text-[12px] font-medium tabular-nums text-muted">{plugin.skill_ids.length}</span>
             </Link>
           ))}
+          {pluginsOpen && (
+            <Link
+              to="/plugins?new=1"
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-2.5 py-[7px] text-sm text-muted transition-colors outline-none hover:bg-surface-hover hover:text-secondary"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t("plugins.new")}
+            </Link>
+          )}
           <div className="mx-0.5 mt-3.5 mb-2.5 border-t border-border-subtle" />
 
           {/* ── Presets ── */}
