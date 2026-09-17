@@ -131,6 +131,19 @@ export function Plugins() {
     }
   };
 
+  const handleReconcile = async (pluginId: string) => {
+    setBusy(pluginId);
+    try {
+      const count = await api.reconcilePluginSkills(pluginId);
+      await refresh();
+      toast.success(t("plugins.deduplicated", { count }));
+    } catch (error) {
+      toast.error(getErrorMessage(error, t("common.requestFailed")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-5 pb-8">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border-subtle pb-4">
@@ -215,6 +228,7 @@ export function Plugins() {
               <div className="flex min-w-0 gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface-hover text-accent"><Box className="h-4 w-4" /></span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate text-base font-semibold text-primary">{plugin.display_name}</h2>{plugin.active && <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-500">{t("plugins.active")}</span>}</div><p className="mt-1 text-sm text-muted">{plugin.description || t("plugins.noDescription")}</p><p className="mt-2 text-xs text-faint">{t("plugins.members", { count: plugin.skill_ids.length })} · {t("plugins.dependencies", { count: plugin.dependency_ids.length })}{plugin.version ? ` · v${plugin.version}` : ""}</p></div></div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => handleActivation(plugin.id, plugin.active)} disabled={busy !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-secondary hover:bg-surface-hover disabled:opacity-50">{busy === plugin.id ? <Loader2 className="h-4 w-4 animate-spin" /> : plugin.active ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}{plugin.active ? t("plugins.deactivate") : t("plugins.activate")}</button>
+                <button type="button" onClick={() => handleReconcile(plugin.id)} disabled={busy !== null || plugin.active} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-secondary hover:bg-surface-hover disabled:opacity-50">{t("plugins.deduplicate")}</button>
                 <button type="button" onClick={() => setDeleteTarget(plugin)} disabled={busy !== null} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-red-500/40 px-3 text-sm font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />{t("common.delete")}</button>
               </div>
             </div>

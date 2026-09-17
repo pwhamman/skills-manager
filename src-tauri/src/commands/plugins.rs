@@ -339,6 +339,21 @@ pub async fn delete_plugin(
     .await?
 }
 
+#[tauri::command]
+pub async fn reconcile_plugin_skills(
+    plugin_id: String,
+    store: State<'_, Arc<SkillStore>>,
+) -> Result<usize, AppError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        sync_metadata::with_repo_lock("reconcile plugin skills", || {
+            plugins::reconcile_plugin_skill_members(&store, &plugin_id)
+        })
+        .map_err(AppError::io)
+    })
+    .await?
+}
+
 fn manual_slug(store: &SkillStore, name: &str) -> anyhow::Result<String> {
     let base = name
         .to_ascii_lowercase()

@@ -1081,6 +1081,8 @@
     "deleted": "外掛已刪除",
     "deleteTitle": "刪除外掛？",
     "deleteConfirm": "刪除「{{name}}」？其受管理目標將被移除，但技能庫中的技能會保留。",
+    "deduplicate": "使用現有技能",
+    "deduplicated": "{{count}} 個外掛技能現已使用現有技能庫技能。",
     "empty": "尚無外掛套件。"
   }
 }

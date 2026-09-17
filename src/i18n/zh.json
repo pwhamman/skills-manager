@@ -1165,6 +1165,8 @@
     "deleted": "插件已删除",
     "deleteTitle": "删除插件？",
     "deleteConfirm": "删除“{{name}}”？其受管理目标将被移除，但技能库中的技能会保留。",
+    "deduplicate": "使用现有技能",
+    "deduplicated": "{{count}} 个插件技能现已使用现有技能库技能。",
     "empty": "尚无插件包。"
   }
 }

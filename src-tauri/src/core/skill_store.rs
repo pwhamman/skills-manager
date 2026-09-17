@@ -503,6 +503,26 @@ impl SkillStore {
         Ok(())
     }
 
+    /// Delete an unmanaged skill only after all package, preset, deployment,
+    /// and tag references are gone. Returns whether a row was removed.
+    pub fn delete_skill_if_unreferenced(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let referenced: i64 = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM plugin_skills WHERE skill_id = ?1
+                UNION ALL SELECT 1 FROM scenario_skills WHERE skill_id = ?1
+                UNION ALL SELECT 1 FROM skill_targets WHERE skill_id = ?1
+                UNION ALL SELECT 1 FROM skill_tags WHERE skill_id = ?1
+            )",
+            params![id],
+            |row| row.get(0),
+        )?;
+        if referenced != 0 {
+            return Ok(false);
+        }
+        Ok(conn.execute("DELETE FROM skills WHERE id = ?1", params![id])? == 1)
+    }
+
     pub fn delete_skill(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM skills WHERE id = ?1", params![id])?;

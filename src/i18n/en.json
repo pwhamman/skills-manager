@@ -1165,6 +1165,8 @@
     "deleted": "Plugin deleted",
     "deleteTitle": "Delete plugin?",
     "deleteConfirm": "Delete “{{name}}”? Its managed targets are removed, but its library skills remain available.",
+    "deduplicate": "Use existing skills",
+    "deduplicated": "{{count}} package skills now use existing library skills.",
     "empty": "No plugin packages yet."
   }
 }

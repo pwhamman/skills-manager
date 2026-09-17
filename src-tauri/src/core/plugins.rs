@@ -9,7 +9,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use sha2::Digest;
 use serde::{Deserialize, Serialize};
 use crate::core::{
-    git_fetcher, installer, scenario_service, sync_engine, sync_metadata, tool_adapters,
+    central_repo, content_hash, git_fetcher, installer, scenario_service, skill_metadata,
+    sync_engine, sync_metadata, tool_adapters,
     skill_store::{PluginManagedTargetRecord, PluginRecord, SkillRecord, SkillStore},
 };
 use std::path::{Component, Path, PathBuf};
@@ -298,15 +299,13 @@ pub fn import_cursor_plugin(
     for declared in preview.skills {
         let source_dir = skills_root.join(&declared.relative_path);
         let subpath = git_fetcher::relative_subpath(&temp_dir, &source_dir);
-        let existing = store
-            .get_all_skills()?
-            .into_iter()
-            .find(|skill| {
-                skill.source_ref_resolved.as_deref() == Some(parsed.clone_url.as_str())
-                    && skill.source_branch == parsed.branch
-                    && skill.source_subpath == subpath
-            });
-        let skill_id = if let Some(skill) = existing {
+        let skill_id = if let Some(skill) = reusable_plugin_skill(
+            store,
+            &parsed.clone_url,
+            parsed.branch.as_deref(),
+            subpath.as_deref(),
+            &declared.name,
+        )? {
             skill.id
         } else {
             let installed = installer::install_from_git_dir(&source_dir, Some(&declared.name))?;
@@ -351,6 +350,122 @@ pub fn import_cursor_plugin(
     store.replace_plugin_skills(&plugin.id, &skill_ids)?;
     sync_metadata::write_all_from_db_unlocked(store)?;
     Ok(plugin)
+}
+
+fn reusable_plugin_skill(
+    store: &SkillStore,
+    source_ref_resolved: &str,
+    source_branch: Option<&str>,
+    source_subpath: Option<&str>,
+    declared_name: &str,
+) -> Result<Option<SkillRecord>> {
+    let skills = store.get_all_skills()?;
+    if let Some(skill) = skills.iter().find(|skill| {
+        skill.source_ref_resolved.as_deref() == Some(source_ref_resolved)
+            && skill.source_branch.as_deref() == source_branch
+            && skill.source_subpath.as_deref() == source_subpath
+    }) {
+        return Ok(Some(skill.clone()));
+    }
+
+    let Some(identity) = canonical_skill_name(declared_name) else {
+        return Ok(None);
+    };
+    let matches: Vec<_> = skills
+        .into_iter()
+        .filter(|skill| canonical_skill_name(&skill.name).as_deref() == Some(identity.as_str()))
+        .collect();
+    match matches.as_slice() {
+        [] => Ok(None),
+        [skill] => Ok(Some(skill.clone())),
+        _ => bail!(
+            "cannot safely select a package skill for {declared_name}: {} library skills have that name",
+            matches.len()
+        ),
+    }
+}
+
+fn canonical_skill_name(name: &str) -> Option<String> {
+    skill_metadata::sanitize_skill_name(name).map(|name| name.to_lowercase())
+}
+
+/// Replace imported duplicate members with their pre-existing semantic skill
+/// records. A package source is not permitted to overwrite a local variant:
+/// the existing library skill is selected instead. Only unchanged, now-orphaned
+/// package copies are removed.
+pub fn reconcile_plugin_skill_members(store: &SkillStore, plugin_id: &str) -> Result<usize> {
+    let plugin = store
+        .get_plugin_by_id(plugin_id)?
+        .ok_or_else(|| anyhow!("plugin not found"))?;
+    if plugin.active {
+        bail!("deactivate the plugin before reconciling its skills");
+    }
+    let member_ids = store.get_plugin_skill_ids(plugin_id)?;
+    let all_skills = store.get_all_skills()?;
+    let mut replacements = Vec::new();
+    let mut members = Vec::with_capacity(member_ids.len());
+
+    for member_id in &member_ids {
+        let member = all_skills
+            .iter()
+            .find(|skill| skill.id == *member_id)
+            .ok_or_else(|| anyhow!("plugin references an unknown skill"))?;
+        let identity = canonical_skill_name(&skill_metadata::infer_skill_name(
+            Path::new(&member.central_path),
+        ));
+        let replacement = identity.and_then(|identity| {
+            let candidates: Vec<_> = all_skills
+                .iter()
+                .filter(|skill| {
+                    skill.id != member.id
+                        && skill.source_ref_resolved != plugin.source_ref_resolved
+                        && canonical_skill_name(&skill.name).as_deref() == Some(identity.as_str())
+                })
+                .collect();
+            (candidates.len() == 1).then(|| candidates[0])
+        });
+        if let Some(replacement) = replacement {
+            replacements.push((member.clone(), replacement.id.clone()));
+            members.push(replacement.id.clone());
+        } else {
+            members.push(member.id.clone());
+        }
+    }
+
+    if replacements.is_empty() {
+        return Ok(0);
+    }
+    store.replace_plugin_skills(plugin_id, &members)?;
+    for (duplicate, _) in &replacements {
+        remove_unchanged_orphaned_plugin_copy(store, duplicate, &plugin)?;
+    }
+    sync_metadata::write_all_from_db_unlocked(store)?;
+    Ok(replacements.len())
+}
+
+fn remove_unchanged_orphaned_plugin_copy(
+    store: &SkillStore,
+    skill: &SkillRecord,
+    plugin: &PluginRecord,
+) -> Result<()> {
+    if skill.source_ref_resolved != plugin.source_ref_resolved {
+        return Ok(());
+    }
+    let path = PathBuf::from(&skill.central_path);
+    let unchanged = skill.content_hash.as_deref().is_some_and(|expected| {
+        content_hash::hash_directory(&path).ok().as_deref() == Some(expected)
+    });
+    if !unchanged || !store.delete_skill_if_unreferenced(&skill.id)? {
+        return Ok(());
+    }
+
+    let root = central_repo::skills_dir().canonicalize()?;
+    let resolved = path.canonicalize()?;
+    if !resolved.starts_with(&root) || resolved == root {
+        bail!("refusing to remove plugin skill outside the library");
+    }
+    std::fs::remove_dir_all(resolved)?;
+    Ok(())
 }
 
 fn validate_plugin_clone(temp_dir: &Path) -> Result<PathBuf> {
@@ -650,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn import_reuses_existing_library_record_at_matching_content_path() {
+    fn import_reuses_existing_named_library_record_without_overwriting_it() {
         let _guard = central_repo::test_base_dir_lock();
         let temp = tempdir().unwrap();
         let base = temp.path().join("library");
@@ -679,17 +794,19 @@ mod tests {
             ],
         );
 
-        let installed = installer::install_from_git_dir(
-            &clone.join("skills/one"),
-            Some("Example Skill"),
+        let existing_path = skills_dir.join("example-skill");
+        write_skill(&skills_dir, "example-skill");
+        fs::write(
+            existing_path.join("SKILL.md"),
+            "---\nname: Example Skill\ndescription: Local improvements\n---\n",
         )
         .unwrap();
         let now = chrono::Utc::now().timestamp_millis();
         store
             .insert_skill(&SkillRecord {
                 id: "existing-skill".to_string(),
-                name: installed.name,
-                description: installed.description,
+                name: "Example Skill".to_string(),
+                description: Some("Local improvements".to_string()),
                 source_type: "local".to_string(),
                 source_ref: None,
                 source_ref_resolved: None,
@@ -697,8 +814,8 @@ mod tests {
                 source_branch: None,
                 source_revision: None,
                 remote_revision: None,
-                central_path: installed.central_path.to_string_lossy().to_string(),
-                content_hash: Some(installed.content_hash),
+                central_path: existing_path.to_string_lossy().to_string(),
+                content_hash: Some(content_hash::hash_directory(&existing_path).unwrap()),
                 enabled: true,
                 created_at: now,
                 updated_at: now,
@@ -715,6 +832,70 @@ mod tests {
             vec!["existing-skill"]
         );
         assert_eq!(store.get_all_skills().unwrap().len(), 1);
+        assert!(!skills_dir.join("example-skill-2").exists());
+        assert_eq!(
+            fs::read_to_string(existing_path.join("SKILL.md")).unwrap(),
+            "---\nname: Example Skill\ndescription: Local improvements\n---\n"
+        );
+
+        let duplicate_path = skills_dir.join("example-skill-2");
+        write_skill(&skills_dir, "example-skill-2");
+        let duplicate_hash = content_hash::hash_directory(&duplicate_path).unwrap();
+        store
+            .insert_skill(&SkillRecord {
+                id: "imported-duplicate".to_string(),
+                name: "example-skill-2".to_string(),
+                description: Some("Example".to_string()),
+                source_type: "git".to_string(),
+                source_ref: Some(source().source_ref.clone()),
+                source_ref_resolved: Some(source().source_ref_resolved.clone()),
+                source_subpath: Some("pstack/skills/example-skill".to_string()),
+                source_branch: Some("main".to_string()),
+                source_revision: Some("abc123".to_string()),
+                remote_revision: Some("abc123".to_string()),
+                central_path: duplicate_path.to_string_lossy().to_string(),
+                content_hash: Some(duplicate_hash),
+                enabled: true,
+                created_at: now,
+                updated_at: now,
+                status: "ok".to_string(),
+                update_status: "up_to_date".to_string(),
+                last_checked_at: Some(now),
+                last_check_error: None,
+            })
+            .unwrap();
+        let duplicate_plugin = PluginRecord {
+            id: "duplicate-plugin".to_string(),
+            slug: "duplicate-plugin".to_string(),
+            kind: "cursor".to_string(),
+            name: "duplicate-plugin".to_string(),
+            display_name: "Duplicate Plugin".to_string(),
+            description: None,
+            version: None,
+            source_ref: Some(source().source_ref.clone()),
+            source_ref_resolved: Some(source().source_ref_resolved.clone()),
+            source_branch: Some("main".to_string()),
+            source_revision: Some("abc123".to_string()),
+            author: None,
+            homepage: None,
+            active: false,
+            created_at: now,
+            updated_at: now,
+        };
+        store.upsert_plugin(&duplicate_plugin).unwrap();
+        store
+            .replace_plugin_skills(&duplicate_plugin.id, &["imported-duplicate".to_string()])
+            .unwrap();
+        assert_eq!(
+            reconcile_plugin_skill_members(&store, &duplicate_plugin.id).unwrap(),
+            1
+        );
+        assert_eq!(
+            store.get_plugin_skill_ids(&duplicate_plugin.id).unwrap(),
+            vec!["existing-skill"]
+        );
+        assert!(store.get_skill_by_id("imported-duplicate").unwrap().is_none());
+        assert!(!duplicate_path.exists());
 
         central_repo::set_test_base_dir_override(None);
         fs::remove_dir_all(clone).unwrap();

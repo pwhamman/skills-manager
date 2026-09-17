@@ -868,6 +868,9 @@ export const deactivatePlugin = (pluginId: string) =>
 export const deletePlugin = (pluginId: string) =>
   invoke<void>("delete_plugin", { pluginId });
 
+export const reconcilePluginSkills = (pluginId: string) =>
+  invoke<number>("reconcile_plugin_skills", { pluginId });
+
 export const createManualPlugin = (
   displayName: string,
   description: string | null,
