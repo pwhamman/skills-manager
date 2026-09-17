@@ -50,6 +50,7 @@ function getSyncHealthIndicator(health: SyncHealth, skillCount: number): { color
 export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
+  const selectedPluginId = new URLSearchParams(location.search).get("plugin");
   const navigate = useNavigate();
   const { presets, viewedPreset, setViewedPresetId, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, profiles, refreshProfiles, plugins, appUpdate } = useApp();
   const [showCreate, setShowCreate] = useState(false);
@@ -524,17 +525,17 @@ export function Sidebar() {
           {pluginsOpen && plugins.map((plugin) => (
             <Link
               key={plugin.id}
-              to="/plugins"
+              to={`/plugins?plugin=${encodeURIComponent(plugin.id)}`}
               className={cn(
                 "mx-2.5 mb-0.5 flex items-center gap-2 rounded-md px-2.5 py-[7px] text-sm transition-colors outline-none",
-                location.pathname === "/plugins"
+                selectedPluginId === plugin.id
                   ? "bg-surface-active font-medium text-primary"
                   : "text-tertiary hover:bg-surface-hover hover:text-secondary"
               )}
             >
               <span className={cn(
                 "flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded border",
-                location.pathname === "/plugins" ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"
+                selectedPluginId === plugin.id ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-muted"
               )}>
                 <Package className="h-3 w-3" />
               </span>
