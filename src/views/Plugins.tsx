@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useApp } from "../context/AppContext";
 import * as api from "../lib/tauri";
+import { getErrorMessage } from "../lib/error";
 import type { Plugin, PluginInstallPreview } from "../lib/tauri";
 
 export function Plugins() {
@@ -43,7 +44,7 @@ export function Plugins() {
     try {
       setPreview(await api.previewPluginInstall(importUrl.trim()));
     } catch (error) {
-      toast.error(String(error));
+      toast.error(getErrorMessage(error, t("common.requestFailed")));
     } finally {
       setBusy(null);
     }
@@ -64,7 +65,8 @@ export function Plugins() {
       await refresh();
       toast.success(t("plugins.imported"));
     } catch (error) {
-      toast.error(String(error));
+      setPreview(null);
+      toast.error(getErrorMessage(error, t("common.requestFailed")));
     } finally {
       setBusy(null);
     }
@@ -87,7 +89,7 @@ export function Plugins() {
       await refreshPlugins();
       toast.success(t("plugins.created"));
     } catch (error) {
-      toast.error(String(error));
+      toast.error(getErrorMessage(error, t("common.requestFailed")));
     } finally {
       setBusy(null);
     }
@@ -108,7 +110,7 @@ export function Plugins() {
       else await api.activatePlugin(pluginId);
       await refresh();
     } catch (error) {
-      toast.error(String(error));
+      toast.error(getErrorMessage(error, t("common.requestFailed")));
     } finally {
       setBusy(null);
     }
@@ -122,7 +124,7 @@ export function Plugins() {
       await refresh();
       toast.success(t("plugins.deleted"));
     } catch (error) {
-      toast.error(String(error));
+      toast.error(getErrorMessage(error, t("common.requestFailed")));
       throw error;
     } finally {
       setBusy(null);
